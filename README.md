@@ -8,19 +8,45 @@ into their own venv (`vllm`, `ComfyUI`, `open-webui`, ...).
 ## Usage
 
 Vendor a pinned copy into your repo (don't fetch at build time — keeps
-builds reproducible/offline-capable):
+builds reproducible/offline-capable). Two files land together, both
+tracked in git:
+
+- `tuned/common.sh` (or a repo-root `tuned-common.sh` for repos with no
+  `tuned/` dir, e.g. ComfyUI/vllm) — the library itself.
+- `tuned/sync-common.sh` (same rule for placement) — copy of this repo's
+  own `sync-common.sh`, used to check/refresh the sibling `common.sh`
+  later. Vendored too rather than fetched fresh each time, so checking is
+  itself offline-capable/reproducible.
+
+First-time setup:
 
 ```bash
 curl -fsSL -o tuned/common.sh \
   https://raw.githubusercontent.com/zbrad/tuned-common/<commit-or-tag>/tuned-common.sh
+curl -fsSL -o tuned/sync-common.sh \
+  https://raw.githubusercontent.com/zbrad/tuned-common/<commit-or-tag>/sync-common.sh
+chmod +x tuned/sync-common.sh
+echo "<commit-sha>" > tuned/common.sh.sha
 ```
 
-Then source it from your own `tuned/env.sh`, after setting your
+Then source `common.sh` from your own `tuned/env.sh`, after setting your
 repo-specific device/arch env vars:
 
 ```bash
 source "${GPU_TUNED_SELF_DIR}/common.sh"
 ```
+
+## Keeping a vendored copy in sync
+
+```bash
+tuned/sync-common.sh check        # exit 1 + a message if stale, no changes made
+tuned/sync-common.sh sync         # fetch main's current HEAD, update common.sh + the .sha marker if changed
+tuned/sync-common.sh sync <ref>   # pin to a specific commit/tag instead of main
+```
+
+`sync` refuses to apply an update that fails a `bash -n` syntax check,
+leaving the existing vendored copy untouched. It always prints a diff
+before overwriting.
 
 ## Functions
 
