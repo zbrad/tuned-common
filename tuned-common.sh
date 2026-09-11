@@ -213,19 +213,32 @@ gpu_tuned_verify_cccl_version() {
 # greps one constant name (see zbrad/raft's raft_wheel_common.sh, which
 # stamps both libraft and librmm into .raft_build_info regardless of
 # which package is being stamped).
+#
+# Always stamps the exact source commit (git rev-parse --short HEAD, run
+# from the caller's cwd -- every tuned/build.sh|wheel.sh invokes this from
+# REPO_ROOT) in addition to <version>, rather than trusting <version> to
+# carry it. It didn't always: some tuned-builds version schemes embed a
+# git sha in the version string itself (e.g. pytorch's old
+# BASE.dev<date>+git<sha>...), others (e.g. a plain semver, or a
+# tuning-vN commit-count scheme) don't -- a caller passing one of the
+# latter used to leave the stamped binary itself with no way back to the
+# exact commit, unlike its GitHub release title. Auto-detecting here
+# means it can't be forgotten by a caller either way.
 gpu_tuned_embed_build_info() {
     local target="$1" variant="$2" package="$3" version="$4" hw_label="${5:-${2}}" repo_url="${6:-}" section_override="${7:-}"
-    local section tmp
+    local section tmp git_sha
     if [ -n "${section_override}" ]; then
         section="${section_override}"
         [[ "${section}" == .* ]] || section=".${section}"
     else
         section=".$(printf '%s' "${package}" | tr -c 'A-Za-z0-9' '_')_build_info"
     fi
+    git_sha="$(git rev-parse --short HEAD 2>/dev/null)" || git_sha="unknown"
     tmp="$(mktemp)"
     {
         printf '%s-%s build: %s v%s (%s)' "${package}" "${variant}" "${package}" "${version}" "${hw_label}"
         [ -n "${repo_url}" ] && printf ', %s' "${repo_url}"
+        printf ', commit %s' "${git_sha}"
         printf ', built %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } > "${tmp}"
     objcopy --remove-section "${section}" "${target}" 2>/dev/null || true
