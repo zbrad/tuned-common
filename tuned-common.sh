@@ -378,3 +378,81 @@ gpu_tuned_publish_release() {
     fi
     echo "OK: published ${repo}@${tag} -- https://github.com/${repo}/releases/tag/${tag}"
 }
+
+# gpu_tuned_verify_venv <venv-dir> <repo-root> — sanity-checks an existing
+# venv before build.sh/wheel.sh reuse it, instead of silently building on
+# top of corruption. Catches two concrete failure modes hit in practice: a
+# venv effectively copied from another repo (bin/pip's shebang -- an
+# absolute path baked in at creation by both `python3 -m venv` and `uv
+# venv` alike -- resolves outside this venv entirely), and a stray
+# <repo-root>/*.egg-info or build/**/CMakeCache.txt left pointing at a
+# different repo, either of which silently shadows/misdirects a real
+# build. Does not check pyvenv.cfg's `command=` key -- `uv venv` doesn't
+# write one, only `python3 -m venv` does.
+gpu_tuned_verify_venv() {
+    local venv_dir="$1" repo_root="$2"
+    local pip_shebang
+    pip_shebang="$(head -1 "${venv_dir}/bin/pip" 2>/dev/null | sed -n 's/^#!//p')"
+    if [[ -z "${pip_shebang}" || "${pip_shebang}" != "${venv_dir}"/* ]]; then
+        echo "ERROR: gpu_tuned_verify_venv: ${venv_dir}/bin/pip's shebang ('${pip_shebang:-<unreadable>}') does not resolve inside ${venv_dir} -- this venv looks copied from another repo. Delete and rebuild: rm -rf ${venv_dir}" >&2
+        return 1
+    fi
+
+    local stray_egg
+    stray_egg="$(find "${repo_root}" -maxdepth 1 -name '*.egg-info' 2>/dev/null | head -1)"
+    if [[ -n "${stray_egg}" ]]; then
+        echo "ERROR: gpu_tuned_verify_venv: stray ${stray_egg} in repo root can shadow the real installed .dist-info (importlib.metadata resolves cwd-relative egg-info first). Delete it: rm -rf ${stray_egg}" >&2
+        return 1
+    fi
+
+    local cmake_cache cached_home
+    while IFS= read -r cmake_cache; do
+        cached_home="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "${cmake_cache}")"
+        if [[ -n "${cached_home}" && "${cached_home}" != "${repo_root}" ]]; then
+            echo "ERROR: gpu_tuned_verify_venv: ${cmake_cache}'s CMAKE_HOME_DIRECTORY (${cached_home}) does not match this repo (${repo_root}) -- this build/ dir looks copied from another repo. Delete it: rm -rf ${repo_root}/build" >&2
+            return 1
+        fi
+    done < <(find "${repo_root}/build" -name 'CMakeCache.txt' 2>/dev/null)
+
+    return 0
+}
+
+# gpu_tuned_audit_pinned <pip-cmd> <pkg>=<expected-local-tag> [...] —
+# prints each package's installed version, and WARNs (not fatal -- callers
+# decide whether to treat it as an error) if a tuned build's local-version
+# tag isn't present in what's actually installed, e.g. an untuned
+# torch/flashinfer wheel silently shadowing the tuned one via a later,
+# unrelated pip install. <pip-cmd> is the pip to inspect -- a venv's
+# bin/pip, or `python3 -m pip --user` for flashinfer's shared ~/.local.
+gpu_tuned_audit_pinned() {
+    local pip_cmd="$1"
+    shift
+    local spec pkg tag installed
+    for spec in "$@"; do
+        pkg="${spec%%=*}"
+        tag="${spec#*=}"
+        installed="$(${pip_cmd} show "${pkg}" 2>/dev/null | sed -n 's/^Version: //p')"
+        if [[ -z "${installed}" ]]; then
+            echo "  ${pkg}: not installed"
+        elif [[ "${installed}" != *"${tag}"* ]]; then
+            echo "WARNING: gpu_tuned_audit_pinned: ${pkg} ${installed} does not carry expected tag '${tag}' -- a non-tuned build may have silently replaced it." >&2
+        else
+            echo "  ${pkg}: ${installed} (OK)"
+        fi
+    done
+}
+
+# gpu_tuned_audit_stray <pip-cmd> <pkg> [...] — WARNs (not fatal) if any of
+# the named packages are installed at all. For packages known to cause
+# trouble just by being present, not because of a version conflict, but
+# because they aren't part of this fleet's actual dependency chain and can
+# trip an unrelated runtime version check (see: flashinfer-cubin).
+gpu_tuned_audit_stray() {
+    local pip_cmd="$1"
+    shift
+    local pkg installed
+    for pkg in "$@"; do
+        installed="$(${pip_cmd} show "${pkg}" 2>/dev/null | sed -n 's/^Version: //p')"
+        [[ -n "${installed}" ]] && echo "WARNING: gpu_tuned_audit_stray: ${pkg} ${installed} is installed but isn't part of this fleet's dependency chain -- consider: ${pip_cmd} uninstall ${pkg}" >&2
+    done
+}
