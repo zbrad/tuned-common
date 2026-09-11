@@ -398,12 +398,25 @@ gpu_tuned_verify_venv() {
         return 1
     fi
 
-    local stray_egg
-    stray_egg="$(find "${repo_root}" -maxdepth 1 -name '*.egg-info' 2>/dev/null | head -1)"
-    if [[ -n "${stray_egg}" ]]; then
-        echo "ERROR: gpu_tuned_verify_venv: stray ${stray_egg} in repo root can shadow the real installed .dist-info (importlib.metadata resolves cwd-relative egg-info first). Delete it: rm -rf ${stray_egg}" >&2
-        return 1
-    fi
+    # <pkg>.egg-info at repo root is a normal, expected artifact -- both
+    # `pip install -e .` and `python3 -m build` (re)write one as part of
+    # every build in this fleet, which is why it's gitignored everywhere.
+    # Its mere presence isn't a problem; only STALE content is: if it's
+    # left over from an install into some other/since-deleted venv, its
+    # version can silently shadow the real one for anything resolving
+    # importlib.metadata from repo_root's cwd. Compare against what's
+    # actually installed in *this* venv and fail only on a mismatch.
+    local egg_dir pkg_name egg_version installed_version
+    for egg_dir in "${repo_root}"/*.egg-info; do
+        [[ -d "${egg_dir}" ]] || continue
+        pkg_name="$(basename "${egg_dir}" .egg-info)"
+        egg_version="$(sed -n 's/^Version: //p' "${egg_dir}/PKG-INFO" 2>/dev/null | head -1)"
+        installed_version="$("${venv_dir}/bin/pip" show "${pkg_name}" 2>/dev/null | sed -n 's/^Version: //p')"
+        if [[ -n "${egg_version}" && -n "${installed_version}" && "${egg_version}" != "${installed_version}" ]]; then
+            echo "ERROR: gpu_tuned_verify_venv: ${egg_dir}/PKG-INFO's Version (${egg_version}) does not match ${venv_dir}'s installed ${pkg_name} (${installed_version}) -- stale metadata, likely left over from a different/deleted venv. Delete it: rm -rf ${egg_dir}" >&2
+            return 1
+        fi
+    done
 
     local cmake_cache cached_home
     while IFS= read -r cmake_cache; do
