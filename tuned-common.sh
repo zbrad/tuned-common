@@ -246,6 +246,60 @@ gpu_tuned_embed_build_info() {
     rm -f "${tmp}"
 }
 
+# gpu_tuned_verify_build_info <file> <package> <expected-version>
+# [section-override] — reads back the ELF section gpu_tuned_embed_build_info
+# stamped and confirms it exists and actually carries <expected-version>.
+# Exists because a stamp can be silently discarded downstream of where it
+# was applied: a packaging step (e.g. scikit-build-core's `python -m build
+# --wheel`) can run its own fresh install pass into a temp prefix sourced
+# from the build tree's own compiled output, never touching -- and
+# therefore never carrying forward -- whatever copy was stamped earlier.
+# Confirmed empirically for pytorch's wheel.sh: a test marker stamped on
+# the pre-build .so did not survive into the built wheel at all. Call this
+# on the FINAL shipped artifact (the built wheel's own contents, or the
+# installed file in a consuming venv), not just right after stamping a
+# pre-build copy -- checking only the latter would have reported success
+# in the exact case that was actually broken.
+#
+# <expected-version> is a substring match (the section's full message
+# includes package/variant/hw_label/commit/timestamp around it), so pass
+# just the version string, not the whole expected message. Commit sha is
+# deliberately not checked: a consumer generally knows the version it
+# asked for but not independently which commit that version maps to --
+# report the section's full content instead of gating on it.
+#
+# Hard-fails (non-zero, message to stderr) if the section is missing
+# entirely or present but doesn't mention <expected-version>; prints the
+# section's content and returns 0 on success.
+gpu_tuned_verify_build_info() {
+    local file="$1" package="$2" expected_version="$3" section_override="${4:-}"
+    local section
+    if [ -n "${section_override}" ]; then
+        section="${section_override}"
+        [[ "${section}" == .* ]] || section=".${section}"
+    else
+        section=".$(printf '%s' "${package}" | tr -c 'A-Za-z0-9' '_')_build_info"
+    fi
+    local tmp content
+    tmp="$(mktemp)"
+    if ! objcopy --dump-section "${section}=${tmp}" "${file}" 2>/dev/null; then
+        rm -f "${tmp}"
+        echo "ERROR: gpu_tuned_verify_build_info: ${file} has no ${section} section -- the build-info stamp did not survive into this artifact (a packaging/install step likely rebuilt or copied from an unstamped source)." >&2
+        return 1
+    fi
+    content="$(cat "${tmp}")"
+    rm -f "${tmp}"
+    if [[ -z "${content}" ]]; then
+        echo "ERROR: gpu_tuned_verify_build_info: ${file}'s ${section} section is empty." >&2
+        return 1
+    fi
+    if [[ "${content}" != *"${expected_version}"* ]]; then
+        echo "ERROR: gpu_tuned_verify_build_info: ${file}'s ${section} section ('${content}') does not mention expected version '${expected_version}' -- wrong/stale binary shipped." >&2
+        return 1
+    fi
+    echo "OK: ${file}'s ${section} section: ${content}"
+}
+
 # gpu_tuned_protect_torch_pin <venv-dir> <exact-torch-version> — guards a
 # venv's tuned (non-PyPI) torch install against being silently swapped out
 # by a companion package's exact torch pin (e.g. `pip install torchvision`
