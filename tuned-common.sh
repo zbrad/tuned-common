@@ -491,6 +491,15 @@ gpu_tuned_verify_venv() {
 # torch/flashinfer wheel silently shadowing the tuned one via a later,
 # unrelated pip install. <pip-cmd> is the pip to inspect -- a venv's
 # bin/pip, or `python3 -m pip --user` for flashinfer's shared ~/.local.
+#
+# `|| true` on the `pip show` pipeline: pip show exits 1 for a package
+# that isn't installed -- a normal, expected outcome here (the
+# "not installed" branch below), not a real error -- but every caller in
+# this fleet runs under `set -o pipefail`, which would otherwise propagate
+# that exit 1 out of the pipe-to-sed and abort the whole calling script.
+# Confirmed the hard way: flashinfer's build.sh died silently, mid-audit,
+# on exactly this the first time it ran flashinfer-cubin (correctly, not
+# installed) through gpu_tuned_audit_stray below.
 gpu_tuned_audit_pinned() {
     local pip_cmd="$1"
     shift
@@ -498,7 +507,7 @@ gpu_tuned_audit_pinned() {
     for spec in "$@"; do
         pkg="${spec%%=*}"
         tag="${spec#*=}"
-        installed="$(${pip_cmd} show "${pkg}" 2>/dev/null | sed -n 's/^Version: //p')"
+        installed="$(${pip_cmd} show "${pkg}" 2>/dev/null | sed -n 's/^Version: //p' || true)"
         if [[ -z "${installed}" ]]; then
             echo "  ${pkg}: not installed"
         elif [[ "${installed}" != *"${tag}"* ]]; then
@@ -519,7 +528,7 @@ gpu_tuned_audit_stray() {
     shift
     local pkg installed
     for pkg in "$@"; do
-        installed="$(${pip_cmd} show "${pkg}" 2>/dev/null | sed -n 's/^Version: //p')"
+        installed="$(${pip_cmd} show "${pkg}" 2>/dev/null | sed -n 's/^Version: //p' || true)"
         if [[ -n "${installed}" ]]; then
             echo "WARNING: gpu_tuned_audit_stray: ${pkg} ${installed} is installed but isn't part of this fleet's dependency chain -- consider: ${pip_cmd} uninstall ${pkg}" >&2
         fi
