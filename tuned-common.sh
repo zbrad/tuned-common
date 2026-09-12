@@ -466,6 +466,9 @@ gpu_tuned_audit_stray() {
     local pkg installed
     for pkg in "$@"; do
         installed="$(${pip_cmd} show "${pkg}" 2>/dev/null | sed -n 's/^Version: //p')"
-        [[ -n "${installed}" ]] && echo "WARNING: gpu_tuned_audit_stray: ${pkg} ${installed} is installed but isn't part of this fleet's dependency chain -- consider: ${pip_cmd} uninstall ${pkg}" >&2
+        if [[ -n "${installed}" ]]; then
+            echo "WARNING: gpu_tuned_audit_stray: ${pkg} ${installed} is installed but isn't part of this fleet's dependency chain -- consider: ${pip_cmd} uninstall ${pkg}" >&2
+        fi
     done
+    return 0
 }
