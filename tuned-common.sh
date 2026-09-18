@@ -222,7 +222,7 @@ gpu_tuned_verify_cccl_version() {
 # carry it. It didn't always: some tuned-builds version schemes embed a
 # git sha in the version string itself (e.g. pytorch's old
 # BASE.dev<date>+git<sha>...), others (e.g. a plain semver, or a
-# tuning-vN commit-count scheme) don't -- a caller passing one of the
+# tuning.<N> commit-count scheme) don't -- a caller passing one of the
 # latter used to leave the stamped binary itself with no way back to the
 # exact commit, unlike its GitHub release title. Auto-detecting here
 # means it can't be forgotten by a caller either way.
@@ -536,6 +536,50 @@ gpu_tuned_audit_stray() {
         fi
     done
     return 0
+}
+
+# gpu_tuned_local_version <variant> <cuda-compact> <tuning-count> -- prints
+# the canonical PEP 440 local-version label for a tuned wheel:
+#   <variant>.cu<cuda-compact>.tuning.<count>     e.g. gb10.cu134.tuning.34
+# This is the ONE place that format is defined; every wheel script calls it
+# rather than hand-building the string. Rules enforced (see
+# docs/VERSIONING.md for the reasoning and sources):
+#   - dot-separated, lowercase alphanumerics only. PEP 440 normalizes "-"
+#     and "_" to "." and lowercases, so any other form makes the wheel
+#     filename differ from the string we built (tags/titles then disagree).
+#   - the counter is its own PURELY NUMERIC segment ("tuning.34", not
+#     "tuning.v34" / "tuned34"): numeric segments compare as integers, a
+#     fused letter+digit segment compares as text (v100 sorts below v9).
+#   - the counter is canonical decimal (no leading zeros): PEP 440
+#     normalizes numeric segments, so "007" becomes "7" and a filename
+#     containing "007" no longer matches its own metadata (real-world
+#     failure: NVIDIA's Jetson torch wheels with "nv24.08", rejected by uv).
+# Errors (return 1, message on stderr) rather than emitting a bad label.
+gpu_tuned_local_version() {
+    local variant="${1:-}" cuda="${2:-}" count="${3:-}"
+    if [[ ! "${variant}" =~ ^[a-z][a-z0-9]*$ ]]; then
+        echo "ERROR: gpu_tuned_local_version: variant '${variant}' must be lowercase alphanumeric (e.g. gb10)." >&2
+        return 1
+    fi
+    if [[ ! "${cuda}" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: gpu_tuned_local_version: cuda-compact '${cuda}' must be digits only (e.g. 134 for CUDA 13.4)." >&2
+        return 1
+    fi
+    if [[ ! "${count}" =~ ^(0|[1-9][0-9]*)$ ]]; then
+        echo "ERROR: gpu_tuned_local_version: tuning count '${count}' must be a canonical decimal integer (no leading zeros, no letters): PEP 440 normalizes numeric segments, so a padded count would not match its own wheel filename. See docs/VERSIONING.md." >&2
+        return 1
+    fi
+    echo "${variant}.cu${cuda}.tuning.${count}"
+}
+
+# gpu_tuned_tuning_label <version-string> -- prints the "tuning.<N>" part of
+# a tuned version (e.g. "0.7.0+gb10.cu134.tuning.149" -> "tuning.149"), or
+# nothing (still exit 0) if the version doesn't carry one -- e.g. a wheel
+# built before the marker existed, or the legacy "tuning.v<N>" form
+# (see docs/VERSIONING.md, "Backfill"). Never fails: callers run under
+# `set -o pipefail`, where a no-match grep would otherwise abort them.
+gpu_tuned_tuning_label() {
+    printf '%s' "${1:-}" | grep -oE 'tuning\.[0-9]+' | head -1 || true
 }
 
 # --- Loud failures ---------------------------------------------------------

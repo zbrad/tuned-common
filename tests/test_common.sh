@@ -47,5 +47,19 @@ check "an existing ERR trap is not overridden" 1 "custom-trap" "-" \
 check "sourcing without errexit produces no output" 0 "-" "fine" \
   "source '${LIB}'; false; echo fine"
 
+# --- version helpers ---
+lv() { echo "source '${LIB}'; gpu_tuned_local_version $*"; }
+check "local_version canonical" 0 "-" "^gb10\.cu134\.tuning\.34$" "$(lv gb10 134 34)"
+check "local_version count 0 is allowed" 0 "-" "^gb10\.cu134\.tuning\.0$" "$(lv gb10 134 0)"
+check "local_version rejects leading zero" 1 "leading zeros" "-" "$(lv gb10 134 007)"
+check "local_version rejects a v-prefixed count" 1 "canonical decimal" "-" "$(lv gb10 134 v34)"
+check "local_version rejects empty count" 1 "canonical decimal" "-" "$(lv gb10 134 '""')"
+check "local_version rejects dotted cuda" 1 "digits only" "-" "$(lv gb10 13.4 5)"
+check "local_version rejects uppercase variant" 1 "lowercase" "-" "$(lv GB10 134 5)"
+tl() { echo "set -euo pipefail; source '${LIB}'; x=\"\$(gpu_tuned_tuning_label '$1')\"; echo \"[\${x}]\""; }
+check "tuning_label extracts the marker" 0 "-" "^\[tuning\.149\]$" "$(tl '0.7.0+gb10.cu134.tuning.149')"
+check "tuning_label is empty (not an error) when absent" 0 "-" "^\[\]$" "$(tl '0.7.0+gb10.cu134')"
+check "tuning_label ignores the legacy v-form" 0 "-" "^\[\]$" "$(tl '0.7.0+gb10.cu133.tuning.v28')"
+
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

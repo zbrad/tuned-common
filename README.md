@@ -36,6 +36,13 @@ repo-specific device/arch env vars:
 source "${GPU_TUNED_SELF_DIR}/common.sh"
 ```
 
+## Version style and loud failures
+
+See `docs/VERSIONING.md` for the wheel version-label rule (`gpu_tuned_local_version`,
+`gpu_tuned_tuning_label`) and the research behind it. Sourcing `tuned-common.sh` also installs
+an `ERR` trap so aborts under `set -e` are never silent (opt out: `GPU_TUNED_NO_ERR_TRAP=1`).
+Run `bash tests/test_common.sh` before changing the library.
+
 ## Keeping a vendored copy in sync
 
 ```bash
