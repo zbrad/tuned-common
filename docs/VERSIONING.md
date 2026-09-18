@@ -13,6 +13,10 @@ e.g.  0.7.0+gb10.cu134.tuning.149
 - `tuning.<N>`: `N` is the number of tuned-builds commits ahead of `main`, as its
   **own purely numeric segment**, canonical decimal, **never zero-padded**.
 - Lowercase, dot-separated, letters and digits only. No `-`, no `_`.
+- An upstream-derived prefix segment is allowed before the tuned part
+  (`+g44a0a3c96.gb10.cu134.tuning.539`): `setuptools_scm` dev versions (vllm)
+  put `g<sha>` there. It must start with a letter, so it can never be a
+  purely numeric segment that PEP 440 would rewrite.
 - The wheel filename, release tag, release title and installed metadata must all
   show the same string. Parse it with `gpu_tuned_tuning_label` (matches
   `tuning\.[0-9]+`), never with a hand-written regex.
