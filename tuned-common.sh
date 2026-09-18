@@ -3,9 +3,11 @@
 # "tuned-builds" fleet (pytorch, llama.cpp, flash-attention, flashinfer,
 # raft, cuvs, faiss, and downstream consumers like vllm/ComfyUI/open-webui).
 #
-# Source this file; it defines functions only (no side effects, no exports)
-# so it's safe to source before or after a repo's own tuned/env.sh sets its
-# device-specific vars. Every function takes its inputs as explicit
+# Source this file; it defines functions only (no exports) so it's safe to
+# source before or after a repo's own tuned/env.sh sets its device-specific
+# vars. The ONE intentional side effect is the loud-failure ERR trap
+# installed at the bottom of this file (see "Loud failures" there; opt out
+# with GPU_TUNED_NO_ERR_TRAP=1). Every function takes its inputs as explicit
 # arguments -- none of them read a repo-specific global var name (that's
 # the whole point: this file is meant to be byte-identical across every
 # consumer, so it's fetched/vendored, not hand-copied-and-edited).
@@ -535,3 +537,30 @@ gpu_tuned_audit_stray() {
     done
     return 0
 }
+
+# --- Loud failures ---------------------------------------------------------
+# Every consumer script runs under `set -euo pipefail`, where a failing
+# command -- notably a no-match grep inside a $(...) assignment -- aborts the
+# script with NO output at all. That has bitten this fleet repeatedly
+# (release.sh's tuning-label grep, audit_pinned/audit_stray, venv checks).
+# Sourcing this file installs an ERR trap so an abort always says which
+# command failed, where, and from what call stack. Quiet by design when
+# errexit is not active (a `set +e` region, or a command whose failure the
+# caller handles with `||`/`if`, never fires an ERR trap in the first
+# place). Opt out with GPU_TUNED_NO_ERR_TRAP=1; an ERR trap the script
+# already installed itself is left alone.
+gpu_tuned_on_err() {
+    local rc="$1" cmd="$2" i
+    [[ $- == *e* ]] || return 0
+    {
+        echo "[tuned] ERROR: command failed (exit ${rc}): ${cmd}"
+        for (( i = 1; i < ${#BASH_SOURCE[@]}; i++ )); do
+            echo "[tuned]   at ${BASH_SOURCE[i]}:${BASH_LINENO[i-1]} (${FUNCNAME[i]:-main})"
+        done
+    } >&2
+}
+
+if [[ -z "${GPU_TUNED_NO_ERR_TRAP:-}" && -z "$(trap -p ERR)" ]]; then
+    set -o errtrace
+    trap 'gpu_tuned_on_err "$?" "${BASH_COMMAND}"' ERR
+fi
