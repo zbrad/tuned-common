@@ -42,6 +42,8 @@ See `docs/VERSIONING.md` for the wheel version-label rule (`gpu_tuned_local_vers
 `gpu_tuned_tuning_label`) and the research behind it. Sourcing `tuned-common.sh` also installs
 an `ERR` trap so aborts under `set -e` are never silent (opt out: `GPU_TUNED_NO_ERR_TRAP=1`).
 Run `bash tests/test_common.sh` before changing the library.
+`tools/wheel_version_audit.py` audits published wheels against the rule (tests:
+`python3 -m pytest tests/test_wheel_version_audit.py`); latest report: `docs/VERSION_AUDIT_2026-09-18.md`.
 
 ## Keeping a vendored copy in sync
 
