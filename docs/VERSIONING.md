@@ -10,8 +10,11 @@ e.g.  0.7.0+gb10.cu134.tuning.149
 
 - `<variant>`: lowercase alphanumeric (`gb10`, `rtx50`).
 - `cu<cuda>`: CUDA toolkit, digits only, no dot (`cu134` for 13.4).
-- `tuning.<N>`: `N` is the number of tuned-builds commits ahead of `main`, as its
-  **own purely numeric segment**, canonical decimal, **never zero-padded**.
+- `tuning.<N>`: `N` is `git rev-list --count main..HEAD` (tuned-builds commits ahead of
+  local `main`), as its **own purely numeric segment**, canonical decimal, **never
+  zero-padded**. **Precondition:** local `main` must equal `upstream/main`. After every
+  fetch or merge of upstream, run `git fetch upstream main:main` (fast-forward only)
+  *before* building; otherwise `N` also counts upstream's commits.
 - Lowercase, dot-separated, letters and digits only. No `-`, no `_`.
 - An upstream-derived prefix segment is allowed before the tuned part
   (`+g44a0a3c96.gb10.cu134.tuning.539`): `setuptools_scm` dev versions (vllm)
@@ -102,6 +105,12 @@ these exact URLs):
 | flash-attention-vllm | `…cu133.tuning.v39`, `…cu133.tuning.v47`, `…cu134.tuning.v50` |
 | flashinfer | `…cu133.tuning.v28`, `…cu134.tuning.v149` |
 | vllm | `…cu134.tuning.v539` |
+
+The legacy counters are not comparable with `tuning.<N>` beyond ordering: the labels
+published 2026-09-11 to 2026-09-18 were computed while local `main` was stale after the
+upstream merges (for example flashinfer `v149` includes 118 upstream commits; the same tree
+counts 33 once `main` is fast-forwarded). A numeric `tuning.<N>` still sorts above every
+legacy `tuning.vN` (verified for the latest release of each repo).
 
 New builds use `tuning.<N>`. A one-time audit of *every* published wheel and tag
 (including releases older than the tuning marker) against this rule is a
