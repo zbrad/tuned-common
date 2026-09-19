@@ -83,3 +83,39 @@ PEP 440 normalized form) and none has a zero-padded numeric segment.
   wheel is `conforming`).
 - Optionally call that from each release script as a gate.
 - Re-run this audit after those builds and periodically; the tool is read-only.
+
+## Verification of the first `tuning.N` builds (2026-09-18, dry run)
+
+The four wheel repos that can be built quickly were built for real with their own
+scripts, with a `gh` shim in front of `PATH` that blocks `gh release create` (so
+nothing was published) and records the tag and title each script would have used.
+Each result was checked with `python3 tools/wheel_version_audit.py --files` (all
+`conforming`) and against the recorded tag and title.
+
+| repo | wheel version | tag == `v<version>` | title carries label | notes |
+|---|---|---|---|---|
+| flash-attention-vllm | `2.7.2.post1+gb10.cu134.tuning.52` | yes | yes | counter inflated by a stale `main` (real: 35) |
+| flash-attention | `2.8.4+gb10.cu134.tuning.46` | yes | yes | counter inflated (real: 25) |
+| flashinfer | `0.7.0+gb10.cu134.tuning.151` | yes | yes | both wheels conform; 146 AOT kernels stamped and verified; counter inflated (real: 33) |
+| vllm | `0.29.1rc1.dev440+g591411670.gb10.cu134.tuning.61` | yes | yes | counter correct (61 == commits ahead of `main`); `g<sha>` scm prefix accepted |
+
+pytorch was not built: its `wheel.sh` repackages an existing build, but its source moved
+485 commits when upstream was merged, so a real run is a multi-hour rebuild. Its label
+code was evaluated in isolation and is the same `gpu_tuned_local_version` call.
+
+Findings from the verification:
+
+1. **Stale `main` inflates the counter.** The first three builds computed their counters
+   while local `main` was behind `upstream/main` after an upstream merge. Fixed by
+   fast-forwarding `main` and by `gpu_tuned_tuning_count` / `gpu_tuned_check_main_current`,
+   which now fail loudly in that case (the vllm build ran with the guard and passed).
+2. **A second `wheel.sh` run trips the venv check.** `build.sh` (editable install) and
+   `wheel.sh` write the same in-repo `*.egg-info` with different versions, so
+   `gpu_tuned_verify_venv` reports a mismatch on the next run. Now reported loudly (it used
+   to abort silently); worked around by deleting the stale gitignored `egg-info`. A proper
+   fix in the wheel scripts is still open.
+3. **The dry run is safe and repeatable.** The shim intercepts `gh release create|upload|edit|
+   delete` and passes every other `gh` call through; afterwards none of the dry-run tags
+   existed on GitHub.
+
+Still open: the first *published* `tuning.N` releases, and a real pytorch build.
