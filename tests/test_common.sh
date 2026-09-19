@@ -61,5 +61,53 @@ check "tuning_label extracts the marker" 0 "-" "^\[tuning\.149\]$" "$(tl '0.7.0+
 check "tuning_label is empty (not an error) when absent" 0 "-" "^\[\]$" "$(tl '0.7.0+gb10.cu134')"
 check "tuning_label ignores the legacy v-form" 0 "-" "^\[\]$" "$(tl '0.7.0+gb10.cu133.tuning.v28')"
 
+# --- main-behind-upstream helper ---
+# mkrepo <dir> <scenario>: an upstream bare repo + a clone with main and tuned-builds
+mkrepo() {
+    local d="$1" scenario="$2"
+    git init -q --bare -b main "${d}/up.git" && git init -q -b main "${d}/seed" && (
+        cd "${d}/seed" && git config user.email t@t && git config user.name t
+        echo 1 > f && git add f && git commit -qm base
+        git remote add origin "${d}/up.git" && git push -q origin main
+    ) && git clone -q -b main "${d}/up.git" "${d}/w" && (
+        cd "${d}/w" && git config user.email t@t && git config user.name t
+        git remote rename origin upstream
+        git checkout -q -b tuned-builds
+        for i in 1 2 3; do echo "o$i" > "o$i"; git add "o$i"; git commit -qm "ours $i"; done
+        case "${scenario}" in
+          clean) ;;
+          fetched-not-merged)
+            (cd "${d}/seed" && for i in 1 2; do echo "u$i" > "u$i"; git add "u$i"; git commit -qm "up $i"; done && git push -q origin main)
+            git fetch -q upstream ;;
+          merged-not-ff)
+            (cd "${d}/seed" && for i in 1 2; do echo "u$i" > "u$i"; git add "u$i"; git commit -qm "up $i"; done && git push -q origin main)
+            git fetch -q upstream && git merge -q --no-edit upstream/main ;;
+          merged-then-ff)
+            (cd "${d}/seed" && for i in 1 2; do echo "u$i" > "u$i"; git add "u$i"; git commit -qm "up $i"; done && git push -q origin main)
+            git fetch -q upstream main:main && git merge -q --no-edit upstream/main ;;
+          no-upstream) git remote remove upstream ;;
+          no-main) git branch -q -D main 2>/dev/null; git checkout -q --detach; git branch -q -D main 2>/dev/null; true ;;
+        esac
+    )
+}
+gh_case() { # name want-exit err-re out-re scenario [env-prefix]
+    local d; d="$(mktemp -d)"; mkrepo "${d}" "$5" >/dev/null 2>&1
+    check "$1" "$2" "$3" "$4" "${6:-} source '${LIB}'; gpu_tuned_tuning_count '${d}/w'"
+    rm -rf "${d}"
+}
+gh_case "tuning_count: clean repo prints our commit count" 0 "-" "^3$" clean
+gh_case "tuning_count: plain fetch without merge does not trip the check" 0 "-" "^3$" fetched-not-merged
+gh_case "tuning_count: upstream merged but main not fast-forwarded fails loudly" 1 "would include 2 upstream commit.*only 4 are ours" "-" merged-not-ff
+gh_case "tuning_count: stale-main error names the fix command" 1 "git fetch upstream main:main" "-" merged-not-ff
+gh_case "tuning_count: override warns loudly and still returns the count" 0 "GPU_TUNED_ALLOW_STALE_MAIN is set" "^6$" merged-not-ff "GPU_TUNED_ALLOW_STALE_MAIN=1;"
+gh_case "tuning_count: after fast-forwarding main it counts only our commits" 0 "-" "^4$" merged-then-ff
+gh_case "tuning_count: no upstream remote warns and still counts" 0 "no 'upstream' remote" "^3$" no-upstream
+gh_case "tuning_count: missing local main is an error" 1 "no local 'main' branch" "-" no-main
+mkrepo_dir="$(mktemp -d)"; mkrepo "${mkrepo_dir}" merged-not-ff >/dev/null 2>&1
+check "tuning_count: stale main prints nothing on stdout" 0 "-" "^\\[\\]$" "source '${LIB}'; X=\"\$(gpu_tuned_tuning_count '${mkrepo_dir}/w' 2>/dev/null)\" || true; echo \"[\${X}]\""
+check "check_main_current alone: stale main returns 1" 1 "local 'main' is stale" "-" "source '${LIB}'; gpu_tuned_check_main_current '${mkrepo_dir}/w'"
+check "check_main_current under set -e reports via the ERR trap too" 1 "\\[tuned\\] ERROR: command failed" "-" "set -euo pipefail; source '${LIB}'; X=\"\$(gpu_tuned_tuning_count '${mkrepo_dir}/w')\"; echo unreachable"
+rm -rf "${mkrepo_dir}"
+
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

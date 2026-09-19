@@ -86,6 +86,14 @@ PEP 440 itself ([spec](https://peps.python.org/pep-0440/); further reading:
 - `gpu_tuned_local_version <variant> <cuda> <count>` builds the label and
   **fails loudly** on a non-conforming input (wrong characters, zero-padded or
   non-numeric count). All wheel scripts must call it.
+- `gpu_tuned_tuning_count [dir]` computes N (`git rev-list --count main..HEAD`) and
+  **fails loudly** when local `main` is stale, i.e. when upstream has been merged into
+  `HEAD` but `main` was not fast-forwarded, so N would include upstream's commits. The
+  error names the fix (`git fetch upstream main:main`). A plain `git fetch upstream`
+  without a merge is fine. Override (not recommended): `GPU_TUNED_ALLOW_STALE_MAIN=1`.
+  `gpu_tuned_check_main_current [dir]` is the check alone, for repos whose version is
+  computed elsewhere (vllm's `setup.py`). All wheel scripts must use these instead of
+  running `git rev-list` themselves.
 - `gpu_tuned_tuning_label <version>` extracts `tuning.<N>` and never fails.
 - Both are covered by `tests/test_common.sh` (run it before every change to this
   library).
