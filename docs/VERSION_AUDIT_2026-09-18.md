@@ -52,7 +52,7 @@ after these were built, and the next build of each wheel repo will be the first.
 | zbrad/raft | `v26.08.00-aarch64-cuda133-gb10` | 2026-07-07 | `pylibraft_gb10_cu13-26.8.0+cu133-cp311-abi3-linux_aarch64.whl` | platform-only |
 | zbrad/raft | `librmm-v26.10.00-x86_64-cuda133` | 2026-07-25 | `librmm_cu13-26.10.0+cu133-py3-none-linux_x86_64.whl` | platform-only |
 | zbrad/raft | `librmm-v26.10.00-x86_64-cuda133` | 2026-07-25 | `rmm_cu13-26.10.0+cu133-cp311-abi3-linux_x86_64.whl` | platform-only |
-| zbrad/vllm | `v8.4.dev7-gb10-cu133` | 2026-08-07 | `vllm-8.4.dev7+g2b9dcbd29.d20260807.gb10.cu133-cp314-cp314-linux_aarch64.whl` | pre-marker |
+| zbrad/vllm | `v8.4.dev7-gb10-cu133` | 2026-08-07 | `vllm-8.4.dev7+g2b9dcbd29.d20260807.gb10.cu133-cp314-cp314-linux_aarch64.whl` | pre-marker (deleted 2026-09-18, finding 2) |
 | zbrad/vllm | `v0.29.1rc1.dev435+g44a0a3c96.gb10.cu134.tuning.v539` | 2026-09-18 | `vllm-0.29.1rc1.dev435+g44a0a3c96.gb10.cu134.tuning.v539-cp314-cp314-linux_aarch64.whl` | legacy-v |
 
 Class meanings: `legacy-v` is `<variant>.cu<cuda>.tuning.v<N>` (fused counter);
@@ -68,7 +68,7 @@ correct except for the one case noted below.
 | # | Finding | Disposition |
 |---|---|---|
 | 1 | pytorch tags `v2.15.0+gb10.cu133.tuning-v29` and `...cu134.tuning-v34` use a dash, but the wheel filenames use a dot (PEP 440 normalization). A third, older tag (`v2.15.0.dev20260911+git01b0556c7e6.gb10.cu133-gb10-cu133`) also disagrees with its wheel. | Leave. Fixed going forward: pytorch's wheel script now builds its version through `gpu_tuned_local_version`, so its tag and wheel agree. Verify on the first new pytorch build. |
-| 2 | vllm's public version regressed: the 2026-08-07 wheel is `8.4.dev7+...` (a bogus `setuptools_scm` guess) but the 2026-09-18 wheel is `0.29.1rc1.dev435+...`, which sorts *below* it. | No practical effect while consumers pin URLs. It would bite anyone running `pip install -U vllm` against a find-links index of our releases (the older build wins). Do not publish an unpinned index of vllm wheels. Not fixable without an epoch, which we do not want. |
+| 2 | vllm's public version regressed: the 2026-08-07 wheel is `8.4.dev7+...` (a bogus `setuptools_scm` guess) but the 2026-09-18 wheel is `0.29.1rc1.dev435+...`, which sorts *below* it. | **Resolved 2026-09-18:** deleted the `v8.4.dev7-gb10-cu133` release and its tag (superseded cu133 build, 0 downloads, no consumer referenced it; a local copy of the wheel was kept). The remaining vllm releases are `0.29.1rc1.*` and sort correctly. The `setuptools_scm` guess itself is not fixed at the source, so a checkout with no reachable upstream tag can produce another bogus version; check the version before publishing. Not fixable with an epoch, which we do not want. |
 | 3 | flashinfer `flashinfer_python-0.6.13+gb10` and `flashinfer_jit_cache-0.6.13+gb10` are attached to two releases (`v0.6.13-gb10`, `v0.6-gb10-cu133`). | Harmless: identical bytes (same sha256 and size). It is the same build re-tagged when the tag convention changed. |
 | 4 | 15 `pre-marker` wheels have a variant and CUDA tag but no counter, so two rebuilds of the same upstream version are indistinguishable. | Leave. This is exactly why the `tuning` counter was introduced (2026-09-10); everything built since has one. |
 | 5 | raft's 4 wheels (`libraft`, `pylibraft`, `librmm`, `rmm`) use `+cu133` only (upstream RAPIDS style), and 2 faiss wheels have no local label. They are built by their own scripts, not the shared helper. | Open question: should raft/rmm wheels adopt the counter? They were not in scope for the rule (it covers wheels built by the five repos' `tuned/` scripts), and rebuilds of the same version are currently indistinguishable. Decide when raft wheels are next rebuilt. |
@@ -77,6 +77,8 @@ No wheel has a normalization problem (each filename's version equals its
 PEP 440 normalized form) and none has a zero-padded numeric segment.
 
 ## Next steps
+
+- Finding 2 (vllm version regression) is closed; the inventory above is the state at audit time.
 
 - Verify the first real `tuning.N` build of each wheel repo with
   `python3 tools/wheel_version_audit.py --files dist/*.whl` (exits 1 unless every
