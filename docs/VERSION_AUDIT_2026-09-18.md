@@ -118,4 +118,23 @@ Findings from the verification:
    delete` and passes every other `gh` call through; afterwards none of the dry-run tags
    existed on GitHub.
 
-Still open: the first *published* `tuning.N` releases, and a real pytorch build.
+Still open: a real pytorch build.
+
+## First published `tuning.N` releases (2026-09-18)
+
+Rebuilt with the final scripts (stale-main guard wired in, so the counters are the true
+ones) and published with the real `gh`. Each release was read back from GitHub, each
+downloaded wheel was compared byte-for-byte (SHA-256) with the wheel that was built, and
+the audit tool was re-run live: `conforming` went from 0 to 5 wheels and the six existing
+findings were unchanged (no new ones).
+
+| repo | release tag | wheels |
+|---|---|---|
+| flash-attention-vllm | `v2.7.2.post1+gb10.cu134.tuning.37` | 1 |
+| flash-attention | `v2.8.4+gb10.cu134.tuning.27` | 1 |
+| flashinfer | `v0.7.0+gb10.cu134.tuning.35` | 2 (python, jit-cache with 146 stamped kernels) |
+| vllm | `v0.29.1rc1.dev440+g591411670.gb10.cu134.tuning.61` | 1 |
+
+Consumers were not moved: vllm's `requirements/gb10.txt` and `tuned/devices/gb10.conf` still
+pin the earlier legacy-labelled releases, which remain valid. The new releases are the same
+code with a corrected counter and label.
