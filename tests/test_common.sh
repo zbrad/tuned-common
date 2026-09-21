@@ -126,5 +126,21 @@ check "embed_build_info: re-stamping replaces the previous deps, not appends" 0 
   "deps second, built " \
   "${pre}; ${stamp}; GPU_TUNED_BUILD_INFO_DEPS=first gpu_tuned_embed_build_info \"\$T\" gb10 pkg 1.0 HW; GPU_TUNED_BUILD_INFO_DEPS=second gpu_tuned_embed_build_info \"\$T\" gb10 pkg 1.0 HW; S=\"\$(${read_stamp})\"; echo \"\$S\"; ! grep -q first <<< \"\$S\""
 
+# --- CUDA-version-specific output dirs ---
+check "out_dir build: cuda tag then variant under cpp/build" 0 "-" "^/r/cpp/build/cu133/gb10$" \
+  "${pre}; gpu_tuned_out_dir build /r cu133 gb10"
+check "out_dir build: two toolkits never share a dir" 0 "-" "^/r/cpp/build/cu134/gb10$" \
+  "${pre}; gpu_tuned_out_dir build /r cu134 gb10"
+check "out_dir dist: accepts the shared pseudo-variant" 0 "-" "^/r/dist/cu133/shared$" \
+  "${pre}; gpu_tuned_out_dir dist /r cu133 shared"
+check "out_dir releases: cuda tag only, variant ignored" 0 "-" "^/r/tuned/releases/cu133$" \
+  "${pre}; gpu_tuned_out_dir releases /r cu133 gb10"
+check "out_dir: bad cuda tag fails" 1 "not of the form cu<digits>" "-" \
+  "${pre}; gpu_tuned_out_dir build /r 13.3 gb10"
+check "out_dir build: missing variant fails" 1 "needs a variant" "-" \
+  "${pre}; gpu_tuned_out_dir build /r cu133"
+check "out_dir: unknown kind fails" 1 "unknown kind 'logs'" "-" \
+  "${pre}; gpu_tuned_out_dir logs /r cu133 gb10"
+
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

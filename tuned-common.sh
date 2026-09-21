@@ -380,6 +380,42 @@ gpu_tuned_short_ver() {
     echo "${short}"
 }
 
+# gpu_tuned_out_dir <kind> <repo-root> <cuda-tag> [<variant>] — prints the
+# CUDA-version-specific output directory for <kind>, so builds against two
+# CUDA toolkits never share a directory (a shared build dir carries the other
+# toolkit's CMake cache; a shared test log lets one toolkit's results satisfy
+# the other's publish gate):
+#   build    -> <repo-root>/cpp/build/<cuda-tag>/<variant>
+#   dist     -> <repo-root>/dist/<cuda-tag>/<variant>   (variant may be "shared")
+#   releases -> <repo-root>/tuned/releases/<cuda-tag>   (variant not used)
+# <cuda-tag> is the "cu133" form. Fails (exit 1, message on stderr) on an
+# unknown kind, a malformed tag, or a missing/malformed variant for build/dist.
+gpu_tuned_out_dir() {
+    local kind="$1" root="$2" cuda_tag="$3" variant="${4:-}"
+    if [[ ! "${cuda_tag}" =~ ^cu[0-9]{3,4}$ ]]; then
+        echo "ERROR: gpu_tuned_out_dir: cuda tag '${cuda_tag}' is not of the form cu<digits> (e.g. cu133)." >&2
+        return 1
+    fi
+    case "${kind}" in
+        build|dist)
+            if [[ ! "${variant}" =~ ^[a-z0-9_-]+$ ]]; then
+                echo "ERROR: gpu_tuned_out_dir: '${kind}' needs a variant (got '${variant}')." >&2
+                return 1
+            fi
+            if [[ "${kind}" == "build" ]]; then
+                echo "${root}/cpp/build/${cuda_tag}/${variant}"
+            else
+                echo "${root}/dist/${cuda_tag}/${variant}"
+            fi
+            ;;
+        releases) echo "${root}/tuned/releases/${cuda_tag}" ;;
+        *)
+            echo "ERROR: gpu_tuned_out_dir: unknown kind '${kind}' (expected build, dist or releases)." >&2
+            return 1
+            ;;
+    esac
+}
+
 # gpu_tuned_wheel_version <wheel-path> <pkg-name-prefix> — extracts the
 # full version string from a built wheel's filename: the segment between
 # "<pkg-name-prefix>-" and the next "-", e.g.
