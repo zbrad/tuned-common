@@ -141,6 +141,16 @@ check "out_dir build: missing variant fails" 1 "needs a variant" "-" \
   "${pre}; gpu_tuned_out_dir build /r cu133"
 check "out_dir: unknown kind fails" 1 "unknown kind 'logs'" "-" \
   "${pre}; gpu_tuned_out_dir logs /r cu133 gb10"
+check "cuda_subdir: base, tag and variant" 0 "-" "^/r/_build/cu134/gb10$" \
+  "${pre}; gpu_tuned_cuda_subdir /r/_build cu134 gb10"
+check "cuda_subdir: variant is optional" 0 "-" "^/r/_stage/cu133$" \
+  "${pre}; gpu_tuned_cuda_subdir /r/_stage cu133"
+check "cuda_subdir: bad tag fails" 1 "not of the form cu<digits>" "-" \
+  "${pre}; gpu_tuned_cuda_subdir /r/_build 13.4 gb10"
+check "cuda_subdir: malformed variant fails" 1 "malformed" "-" \
+  "${pre}; gpu_tuned_cuda_subdir /r/_build cu133 'gb 10'"
+check "cuda_subdir: empty base fails" 1 "base dir is empty" "-" \
+  "${pre}; gpu_tuned_cuda_subdir '' cu133 gb10"
 
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
