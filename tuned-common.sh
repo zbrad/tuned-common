@@ -226,6 +226,13 @@ gpu_tuned_verify_cccl_version() {
 # latter used to leave the stamped binary itself with no way back to the
 # exact commit, unlike its GitHub release title. Auto-detecting here
 # means it can't be forgotten by a caller either way.
+#
+# Optional GPU_TUNED_BUILD_INFO_DEPS (env var, single line): what this
+# artifact bundles or was built against, appended as ", deps <text>" so it
+# is readable from the binary itself (e.g. "kvikio 26.12.00, raft
+# v26.12-gb10-cu134-g9d97792e"). Unset, the stamp is unchanged. An env var
+# rather than an 8th argument so the per-repo embed_build_info wrappers need
+# no change.
 gpu_tuned_embed_build_info() {
     local target="$1" variant="$2" package="$3" version="$4" hw_label="${5:-${2}}" repo_url="${6:-}" section_override="${7:-}"
     local section tmp git_sha
@@ -241,6 +248,7 @@ gpu_tuned_embed_build_info() {
         printf '%s-%s build: %s v%s (%s)' "${package}" "${variant}" "${package}" "${version}" "${hw_label}"
         [ -n "${repo_url}" ] && printf ', %s' "${repo_url}"
         printf ', commit %s' "${git_sha}"
+        [ -n "${GPU_TUNED_BUILD_INFO_DEPS:-}" ] && printf ', deps %s' "${GPU_TUNED_BUILD_INFO_DEPS//$'\n'/ }"
         printf ', built %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     } > "${tmp}"
     objcopy --remove-section "${section}" "${target}" 2>/dev/null || true
