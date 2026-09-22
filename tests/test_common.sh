@@ -152,5 +152,68 @@ check "cuda_subdir: malformed variant fails" 1 "malformed" "-" \
 check "cuda_subdir: empty base fails" 1 "base dir is empty" "-" \
   "${pre}; gpu_tuned_cuda_subdir '' cu133 gb10"
 
+# --- protect_torch_pin: version+variant derived from the venv, not typed in ---
+# fake_venv <dir> <torch-version-to-report>|- : a bin/python stub that answers
+# `-c 'import torch; print(torch.__version__)'` with the given version, or
+# fails (like torch not being importable) when the version is "-".
+fake_venv() {
+    local d="$1" ver="$2"
+    mkdir -p "${d}/bin"
+    if [[ "${ver}" == "-" ]]; then
+        printf '#!/bin/bash\nexit 1\n' > "${d}/bin/python"
+    else
+        printf '#!/bin/bash\necho %q\n' "${ver}" > "${d}/bin/python"
+    fi
+    chmod +x "${d}/bin/python"
+}
+ptp_dir="$(mktemp -d)"
+fake_venv "${ptp_dir}/.venv" "0.7.0+gb10.cu134.tuning.35"
+check "protect_torch_pin: derives the version from the venv" 0 "-" \
+  "^OK: pinned torch==0\\.7\\.0\\+gb10\\.cu134\\.tuning\\.35 .*constraints-gb10\\.txt\\)$" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv'"
+check "protect_torch_pin: writes the derived version, not a stale one" 0 "-" \
+  "^torch==0\\.7\\.0\\+gb10\\.cu134\\.tuning\\.35$" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' >/dev/null; grep '^torch==' '${ptp_dir}/constraints-gb10.txt'"
+rm -rf "${ptp_dir}"
+
+ptp_dir="$(mktemp -d)"
+fake_venv "${ptp_dir}/.venv" "2.14.0.dev20260707+gitc36325c5ba.gb10.cu133"
+check "protect_torch_pin: legacy dev-form version still yields the right variant file" 0 "-" \
+  "constraints-gb10\\.txt" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' >/dev/null; ls '${ptp_dir}'/constraints-gb10.txt"
+rm -rf "${ptp_dir}"
+
+ptp_dir="$(mktemp -d)"
+fake_venv "${ptp_dir}/.venv" "2.5.0+rtx40.cu134.tuning.9"
+check "protect_torch_pin: variant is not hardcoded to gb10" 0 "-" \
+  "constraints-rtx40\\.txt" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' >/dev/null; ls '${ptp_dir}'/constraints-rtx40.txt"
+rm -rf "${ptp_dir}"
+
+ptp_dir="$(mktemp -d)"
+fake_venv "${ptp_dir}/.venv" "2.5.0+rtx40.cu134.tuning.9"
+check "protect_torch_pin: an explicit version overrides venv introspection" 0 "-" \
+  "^torch==9\\.9\\.9\\+rtx40\\.cu999\\.tuning\\.1$" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' '9.9.9+rtx40.cu999.tuning.1' >/dev/null; cat '${ptp_dir}/constraints-rtx40.txt' | tail -1"
+rm -rf "${ptp_dir}"
+
+ptp_dir="$(mktemp -d)"
+fake_venv "${ptp_dir}/.venv" "-"
+check "protect_torch_pin: torch not importable is a loud error" 1 \
+  "produced no version -- is torch installed" "-" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv'"
+rm -rf "${ptp_dir}"
+
+ptp_dir="$(mktemp -d)"
+fake_venv "${ptp_dir}/.venv" "2.13.0"
+check "protect_torch_pin: a version with no variant marker is a loud error" 1 \
+  "no '<variant>\\.cu<digits>' marker found" "-" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv'"
+rm -rf "${ptp_dir}"
+
+check "protect_torch_pin: missing venv dir is a loud error" 1 \
+  "no such venv dir" "-" \
+  "${pre}; gpu_tuned_protect_torch_pin '/nonexistent-venv-dir'"
+
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
