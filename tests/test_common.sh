@@ -215,5 +215,87 @@ check "protect_torch_pin: missing venv dir is a loud error" 1 \
   "no such venv dir" "-" \
   "${pre}; gpu_tuned_protect_torch_pin '/nonexistent-venv-dir'"
 
+# --- toolkit loader / verifier (fake toolkit tree, fake dpkg-query and ldd) ---
+tk="$(mktemp -d)"
+mkdir -p "${tk}/data/toolkits" "${tk}/dflt/toolkits" "${tk}/cuda-99.9/bin" "${tk}/cuda-98.0/lib" "${tk}/fakebin"
+printf '%s\n' '#!/bin/bash' 'echo "Cuda compilation tools, release 99.9, V99.9.1"' > "${tk}/cuda-99.9/bin/nvcc"
+printf '%s\n' '#!/bin/bash' 'echo -n "${FAKE_NCCL:-1.0-1}"' > "${tk}/fakebin/dpkg-query"
+printf '%s\n' '#!/bin/bash' 'cat "${FAKE_LDD_OUT}"' > "${tk}/fakebin/ldd"
+chmod +x "${tk}/cuda-99.9/bin/nvcc" "${tk}/fakebin/dpkg-query" "${tk}/fakebin/ldd"
+printf '%s\n' 'TOOLKIT_ID="cu999"' 'TOOLKIT_CUDA_VER="99.9"' "TOOLKIT_CUDA_HOME=\"${tk}/cuda-99.9\"" \
+  'TOOLKIT_NVCC_RELEASE="99.9"' 'TOOLKIT_NCCL_VERSION="1.0-1"' > "${tk}/data/toolkits/cu999.env"
+printf '%s\n' 'TOOLKIT_NVCC_RELEASE="98.0"' > "${tk}/data/toolkits/gb10-cu999.env"
+printf '%s\n' 'TOOLKIT_ID="cu111"' 'TOOLKIT_CUDA_VER="1.1"' 'TOOLKIT_CUDA_HOME="/x"' 'TOOLKIT_NVCC_RELEASE="1.1"' > "${tk}/data/toolkits/cu112.env"
+lt="${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${tk}/data'"
+
+check "load_toolkit: unknown id is an error that lists the available ones" 1 \
+  "no toolkit file.*cu000" "-" "${lt} rtx40 cu000 2>&1 >&2 | cat >&2; gpu_tuned_load_toolkit '${tk}/data' rtx40 cu000"
+check "load_toolkit: available toolkits are listed" 1 "available toolkits:.*cu999" "-" \
+  "${lt} rtx40 cu000"
+check "load_toolkit: exports CUDA_VER/CUDA_TAG/CUDA_HOME/lib dir" 0 "-" \
+  "^99\\.9 cu999 ${tk}/cuda-99.9 ${tk}/cuda-99.9/targets/sbsa-linux/lib$" \
+  "${lt} rtx40 cu999; echo \"\${CUDA_VER} \${CUDA_TAG} \${CUDA_HOME} \${GPU_TUNED_TOOLKIT_LIB_DIR}\""
+# default: highest by declared CUDA version, not by name (13.10 > 13.9; cu1310 sorts below cu139 by name)
+printf '%s\n' 'TOOLKIT_ID="cu139"' 'TOOLKIT_CUDA_VER="13.9"' 'TOOLKIT_CUDA_HOME="/x"' 'TOOLKIT_NVCC_RELEASE="13.9"' > "${tk}/dflt/toolkits/cu139.env"
+printf '%s\n' 'TOOLKIT_ID="cu1310"' 'TOOLKIT_CUDA_VER="13.10"' 'TOOLKIT_CUDA_HOME="/y"' 'TOOLKIT_NVCC_RELEASE="13.10"' > "${tk}/dflt/toolkits/cu1310.env"
+printf '%s\n' 'TOOLKIT_NVCC_RELEASE="0"' > "${tk}/dflt/toolkits/gb10-cu139.env"
+ld="${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${tk}/dflt' gb10"
+check "load_toolkit: no id uses the highest declared CUDA version" 0 "using cu1310 \\(CUDA 13\\.10\\)" "^cu1310 13\\.10 /y$" \
+  "${ld}; echo \"\${CUDA_TAG} \${CUDA_VER} \${CUDA_HOME}\""
+check "load_toolkit: the default states the full list and the reason" 0 \
+  "available:.*cu139\\(13\\.9\\).*cu1310\\(13\\.10\\)|available:.*cu1310\\(13\\.10\\).*cu139\\(13\\.9\\)" "-" "${ld}"
+check "load_toolkit: the default message says how to choose another" 0 "set CUDA_TAG" "-" "${ld}"
+check "load_toolkit: a per-variant file is not counted as a toolkit in the list" 0 "-" "-" \
+  "out=\"\$(${ld} 2>&1)\"; [[ \"\${out}\" != *gb10-cu139* ]]"
+check "load_toolkit: no id and no toolkit files is an error" 1 "none defined" "-" \
+  "${pre}; mkdir -p '${tk}/empty/toolkits'; gpu_tuned_load_toolkit '${tk}/empty' gb10"
+check "load_toolkit: a <variant>-<toolkit>.env overrides the base file" 0 "-" "^98\\.0$" \
+  "${lt} gb10 cu999; echo \"\${TOOLKIT_NVCC_RELEASE}\""
+check "load_toolkit: the base file applies when no variant file exists" 0 "-" "^99\\.9$" \
+  "${lt} rtx40 cu999; echo \"\${TOOLKIT_NVCC_RELEASE}\""
+check "load_toolkit: an inherited CUDA_HOME that differs is rejected" 1 "CUDA_HOME is '/usr/local/cuda'" "-" \
+  "export CUDA_HOME=/usr/local/cuda; ${lt} rtx40 cu999"
+check "load_toolkit: a file whose TOOLKIT_ID disagrees with its name is rejected" 1 "sets TOOLKIT_ID=cu111, expected cu112" "-" \
+  "${lt} rtx40 cu112"
+check "verify_toolkit: matching nvcc and NCCL pass" 0 "-" "^OK: toolkit cu999: nvcc 99\\.9" \
+  "${lt} rtx40 cu999; PATH='${tk}/fakebin':\$PATH gpu_tuned_verify_toolkit"
+check "verify_toolkit: an nvcc release mismatch is rejected" 1 "reports release '99\\.9', toolkit cu999 declares 98\\.0" "-" \
+  "${lt} gb10 cu999; PATH='${tk}/fakebin':\$PATH gpu_tuned_verify_toolkit"
+check "verify_toolkit: a foreign libnccl2 is rejected" 1 "libnccl2 is '2\\.0-9'" "-" \
+  "${lt} rtx40 cu999; FAKE_NCCL=2.0-9 PATH='${tk}/fakebin':\$PATH gpu_tuned_verify_toolkit"
+check "verify_toolkit: refuses to run before a toolkit is loaded" 1 "no toolkit loaded" "-" \
+  "${pre}; gpu_tuned_verify_toolkit"
+printf '%s\n' "	libcudart.so.99 => ${tk}/cuda-99.9/lib/libcudart.so.99 (0x1)" "	libc.so.6 => /lib/libc.so.6 (0x2)" > "${tk}/ldd.good"
+printf '%s\n' "	libcudart.so.99 => ${tk}/cuda-98.0/lib/libcudart.so.99 (0x1)" > "${tk}/ldd.bad"
+mkdir -p "${tk}/cuda-99.9/lib"; : > "${tk}/cuda-99.9/lib/libcudart.so.99"; : > "${tk}/cuda-98.0/lib/libcudart.so.99"
+check "verify_toolkit_libs: libs resolving under CUDA_HOME pass" 0 "-" "-" \
+  "${lt} rtx40 cu999; FAKE_LDD_OUT='${tk}/ldd.good' PATH='${tk}/fakebin':\$PATH gpu_tuned_verify_toolkit_libs /bin/true"
+check "verify_toolkit_libs: libcudart from another tree is rejected" 1 "libcudart.so.99 resolves to .*cuda-98.0.*not under" "-" \
+  "${lt} rtx40 cu999; FAKE_LDD_OUT='${tk}/ldd.bad' PATH='${tk}/fakebin':\$PATH gpu_tuned_verify_toolkit_libs /bin/true"
+rm -rf "${tk}"
+
+# --- repo.env: repo-specific settings must not change shared definitions ---
+re="$(mktemp -d)"
+printf '%s\n' 'GGML_FLAGS="-DGGML_CUDA_FA=ON"' 'REPO_BINARIES="llama-server llama-quantize"' > "${re}/ok.env"
+printf '%s\n' 'GPU_TUNED_CUDA_ARCH="120"' 'GGML_FLAGS="x"' > "${re}/one.env"
+printf '%s\n' 'GPU_TUNED_CUDA_ARCH="120"' 'GPU_TUNED_HW_LABEL="other"' 'CUDA_HOME=/usr/local/cuda' > "${re}/many.env"
+printf '%s\n' 'unset GPU_TUNED_PLATFORM' > "${re}/unset.env"
+printf '%s\n' 'TOOLKIT_NCCL_VERSION="9.9"' > "${re}/newkey.env"
+base="${pre}; export GPU_TUNED_VARIANT=gb10 GPU_TUNED_PLATFORM=aarch64 GPU_TUNED_CUDA_ARCH=121a GPU_TUNED_HW_LABEL=lbl CUDA_HOME=/usr/local/cuda-13.3"
+check "repo_env: repo-specific keys load and are visible" 0 "-" "^-DGGML_CUDA_FA=ON llama-server llama-quantize$" \
+  "${base}; gpu_tuned_load_repo_env '${re}/ok.env'; echo \"\${GGML_FLAGS} \${REPO_BINARIES}\""
+check "repo_env: changing a protected key is a loud error naming old and new" 1 \
+  "GPU_TUNED_CUDA_ARCH: '121a' -> '120'" "-" "${base}; gpu_tuned_load_repo_env '${re}/one.env'"
+check "repo_env: every conflict is listed, not just the first" 1 \
+  "GPU_TUNED_HW_LABEL: 'lbl' -> 'other'" "-" "${base}; gpu_tuned_load_repo_env '${re}/many.env'"
+check "repo_env: CUDA_HOME pointed at the unversioned symlink is flagged" 1 \
+  "CUDA_HOME: '/usr/local/cuda-13.3' -> '/usr/local/cuda'" "-" "${base}; gpu_tuned_load_repo_env '${re}/many.env'"
+check "repo_env: unsetting a protected key is flagged" 1 "GPU_TUNED_PLATFORM: 'aarch64' -> \(unset\)" "-" \
+  "${base}; gpu_tuned_load_repo_env '${re}/unset.env'"
+check "repo_env: newly setting a protected key that was unset is flagged" 1 \
+  "TOOLKIT_NCCL_VERSION: was unset" "-" "${base}; gpu_tuned_load_repo_env '${re}/newkey.env'"
+check "repo_env: a missing file is an error" 1 "no such file" "-" "${base}; gpu_tuned_load_repo_env '${re}/none.env'"
+rm -rf "${re}"
+
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
