@@ -68,4 +68,34 @@ before overwriting.
 - `gpu_tuned_embed_build_info <target> <variant> <package> <version> [hw-label] [repo-url]` — stamp a greppable build-info ELF section
 - `gpu_tuned_protect_torch_pin <venv-dir> <exact-torch-version>` — guard a venv's tuned torch against being silently swapped by a companion package's exact pin
 
+- `gpu_tuned_load_toolkit <data-dir> <variant> <toolkit-id>` — select a CUDA toolkit from `toolkits/<id>.env` (+ optional `<variant>-<id>.env`); exports `CUDA_VER`/`CUDA_TAG`/`CUDA_HOME`/`GPU_TUNED_TOOLKIT_LIB_DIR`. With no id it uses the highest *defined* toolkit (by declared CUDA version) and prints the full list and why; it never consults `/usr/local/cuda` or what is installed
+- `gpu_tuned_verify_toolkit` — confirm the install matches its definition (nvcc release, libnccl2 package version)
+- `gpu_tuned_verify_toolkit_libs <elf>...` — confirm cudart/cublas/cublasLt resolve under `CUDA_HOME` when run with the toolkit's own lib dir on `LD_LIBRARY_PATH`
+
+- `gpu_tuned_load_repo_env <file>` — source a repo's `tuned/repo.env` (CMake flags, paths, extra packages) and fail loudly, listing every key, if it changes, sets or unsets anything the shared device/toolkit files decided
+
 See `tuned-common.sh` itself for full doc comments on each.
+
+## Devices and toolkits (shared data)
+
+- `devices/<variant>.conf` — hardware facts every consumer agrees on (`GPU_TUNED_VARIANT`,
+  `GPU_TUNED_PLATFORM`, `GPU_TUNED_CUDA_ARCH`) and the canonical `GPU_TUNED_HW_LABEL` used in
+  release titles. Used as is: there are no per-repo local override files. Keys that only one
+  repo needs (BLAS paths, AOT flags, wheel URLs) are not part of this file.
+- `toolkits/<id>.env` — one file per CUDA toolkit (`cu133`), the toolkit-versioned
+  `CUDA_HOME` (never the unversioned `/usr/local/cuda` symlink), the `nvcc` release and the
+  library versions the toolkit is built against. `toolkits/<variant>-<id>.env` overrides
+  keys where the stack differs per variant. Record only values read from a real install.
+
+Each repo adds its own settings in `tuned/repo.env`, loaded last by `gpu_tuned_load_repo_env`.
+It is tracked (a release must be reproducible) and may only add repo-specific keys: any attempt
+to change the hardware, toolkit or `CUDA_*` values the shared files set is a loud, all-at-once error.
+
+A consumer vendors these by creating `tuned/common-data/` and running `tuned/sync-common.sh sync`;
+without that directory the sync only touches `common.sh`. The sync overwrites files from
+upstream, reports local files upstream lacks, and never deletes anything.
+
+`gpu_tuned_verify_toolkit_libs` pins a test run, not a deployed machine: the runtime libs are
+deliberately not bundled, so a target resolves them by its own loader configuration. On a host
+whose `/usr/local/cuda` symlink follows the newest toolkit, `ld.so.conf` entries can satisfy the
+lookup from the wrong version, which is why the check puts the toolkit's lib dir first.
