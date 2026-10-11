@@ -50,8 +50,8 @@ upstream tags and versions its releases, beside what our tuned release would be 
 `tuned.expected` blocks are simulated. `tests/test_upstream_versions_doc.py` pins its structure.
 
 `tools/upstream-sync.sh` (with `docs/UPSTREAM_SYNC.md`) syncs a fork to a named upstream tag or pinned
-commit: a read-only `plan`, a fast-forward-only `sync-default`, and a gated `merge` (dry run unless
-`--apply`; never pushes). `bash tests/test_upstream_sync.sh` runs its tests on throwaway repos.
+commit: a read-only `plan`, `sync-default` (fork's GitHub mirror first via `gh repo sync`, then local pulls from it;
+fast-forward only), and a gated `merge` (dry run unless `--apply`; never runs `git push`). `bash tests/test_upstream_sync.sh` runs its tests on throwaway repos.
 
 ## Keeping a vendored copy in sync
 

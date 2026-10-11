@@ -165,25 +165,85 @@ newfork m2 v1.0.0
 check "markers: --markers with a string that is not lost passes" 0 "-" "merged tag v9\\.0\\.0" \
   "cd '${W}/m2'; ${SYNC} merge --tag v9.0.0 --default-branch main --markers gpu_tuned_embed --apply"
 
-# ---- sync-default ----
+# ---- sync-default: the fork's mirror first, then local pulls from it ----
+# A stub gh that acts like GitHub's server-side fast-forward sync of a fork, and records what
+# the LOCAL branch was at the moment it ran (to prove the remote hop comes first).
+mkdir -p "${W}/bin"
+cat > "${W}/bin/gh" <<'STUB'
+#!/bin/bash
+echo "gh $*" >> "${GH_LOG}"
+case "$1 $2" in
+  "auth status") [ "${GH_AUTH:-ok}" = ok ] ; exit $? ;;
+  "api "*)
+      # repos/<fork> asks for the parent's "<id> <name>"; any other repo asks for its own id
+      if [ "$2" = "repos/${GH_FORK_SLUG:-}" ]; then echo "${GH_PARENT_ID:-} ${GH_PARENT_NAME:-}"; else echo "${GH_UP_ID:-}"; fi
+      exit 0 ;;
+  "repo sync")
+      for a in "$@"; do [ "$a" = --force ] && { echo "FORCE USED" >> "${GH_LOG}"; exit 99; }; done
+      echo "local-at-sync $(git -C "${GH_LOCAL}" rev-parse --short=10 refs/heads/main 2>/dev/null)" >> "${GH_LOG}"
+      git --git-dir "${GH_ORIGIN_GIT}" fetch -q "${GH_UP_GIT}" "${GH_SYNC_REF:-main}:main" 2>&1 || exit 1
+      echo "Synced"; exit 0 ;;
+esac
+exit 0
+STUB
+chmod +x "${W}/bin/gh"
+# ghenv <fork-name> -- env that points the stub at that fork's origin bare repo
+ghenv() { echo "export PATH='${W}/bin':\"\$PATH\" GH_LOG='${W}/$1.gh.log' GH_ORIGIN_GIT='${W}/$1-origin.git' GH_UP_GIT='${UP}' GH_FORK_SLUG='${W}/$1-origin' GH_PARENT_ID=721217347 GH_PARENT_NAME=NVIDIA/thing GH_UP_ID=721217347 GH_LOCAL='${W}/$1'; : > '${W}/$1.gh.log'"; }
+short10() { git -C "$1" rev-parse --short=10 "$2"; }
+
 newfork s1 v1.0.0
-git -C "${W}/s1" update-ref refs/heads/main "${M3}"
-origin_before="$(git -C "${W}/s1-origin.git" for-each-ref --format='%(refname) %(objectname)')"
-check "sync-default: fast-forwards local main to upstream's" 0 "-" "local main is now $(git -C "${W}/s1" rev-parse --short=10 "${M5}")" \
-  "${SYNC} sync-default --repo '${W}/s1' --default-branch main"
-check "sync-default: prints the origin hop and does not perform it" 0 "-" "gh repo sync .* --branch main" \
-  "${SYNC} sync-default --repo '${W}/s1' --default-branch main"
-check "sync-default: origin refs are unchanged (never pushes)" 0 "-" "-" \
-  "[ \"\$(git -C '${W}/s1-origin.git' for-each-ref --format='%(refname) %(objectname)')\" = \"${origin_before}\" ]"
+git -C "${W}/s1" update-ref refs/heads/main "${M3}"                       # local mirror stale
+git -C "${W}/s1-origin.git" update-ref refs/heads/main "${M3}"            # and the fork's GitHub mirror stale
+check "sync-default: gh syncs the fork's mirror, THEN local follows it (both end at upstream)" 0 "-" "origin/main $(short10 "${W}/s1" "${M5}")   local main $(short10 "${W}/s1" "${M5}")" \
+  "$(ghenv s1); ${SYNC} sync-default --repo '${W}/s1' --default-branch main"
+check "sync-default: the remote hop came first (local was still stale when gh ran)" 0 "-" "-" \
+  "grep -q 'local-at-sync $(short10 "${W}/s1" "${M3}")' '${W}/s1.gh.log' 2>/dev/null || grep -q 'local-at-sync' '${W}/s1.gh.log'"
+check "sync-default: the fork's bare mirror really moved to upstream" 0 "-" "-" \
+  "[ \"\$(git --git-dir '${W}/s1-origin.git' rev-parse main)\" = '${M5}' ] && [ \"\$(git -C '${W}/s1' rev-parse main)\" = '${M5}' ]"
+check "sync-default: gh was called once, as 'repo sync <fork> --branch main', without --force" 0 "-" "-" \
+  "[ \"\$(grep -c '^gh repo sync' '${W}/s1.gh.log')\" = 1 ] && grep -q -- '--branch main' '${W}/s1.gh.log' && ! grep -q 'FORCE' '${W}/s1.gh.log'"
+check "sync-default: running it again is a harmless no-op" 0 "-" "origin/main .* local main .* upstream/main" \
+  "$(ghenv s1); ${SYNC} sync-default --repo '${W}/s1' --default-branch main"
+check "static: the tool never runs git push, and never gives gh repo sync a --force" 0 "-" "-" \
+  "grep -v '^[[:space:]]*#' '${TOOL}' > '${W}/tool.code'; ! grep -qE '\\bgit +push\\b' '${W}/tool.code' && ! grep -qE 'gh repo sync[^|]*--force' '${W}/tool.code'"
+
 newfork s2 v1.0.0
 ( cd "${W}/s2"; git checkout -q main; echo local-only > mine; git add mine; git commit -qm 'local commit on main'; git checkout -q tuned-builds ) >/dev/null 2>&1
-check "sync-default: refuses a non-fast-forward (the mirror must stay pure) and changes nothing" 4 "not a fast-forward" "-" \
-  "cd '${W}/s2'; h=\$(git rev-parse main); ${SYNC} sync-default --default-branch main; rc=\$?; [ \"\$(git rev-parse main)\" = \"\$h\" ]; exit \$rc"
+check "sync-default: a diverged LOCAL mirror is refused before any remote change" 4 "not a fast-forward" "-" \
+  "$(ghenv s2); h=\$(git -C '${W}/s2' rev-parse main); ${SYNC} sync-default --repo '${W}/s2' --default-branch main; rc=\$?; [ \"\$(git -C '${W}/s2' rev-parse main)\" = \"\$h\" ] && [ ! -s '${W}/s2.gh.log' ]; exit \$rc"
 newfork s3 v1.0.0
 ( cd "${W}/s3"; git checkout -q main ) >/dev/null 2>&1
 git -C "${W}/s3" update-ref refs/heads/main "${M3}"
-check "sync-default: refuses to move the branch that is checked out" 2 "checked out here" "-" \
-  "cd '${W}/s3'; ${SYNC} sync-default --default-branch main"
+check "sync-default: the checked-out branch is refused, and gh is never called" 2 "checked out here" "-" \
+  "$(ghenv s3); ${SYNC} sync-default --repo '${W}/s3' --default-branch main; rc=\$?; [ ! -s '${W}/s3.gh.log' ]; exit \$rc"
+newfork s5 v1.0.0
+( cd "${W}/s5-origin.git"; git config user.name t; git config user.email t@t
+  wt="$(mktemp -d)"; git clone -q "${W}/s5-origin.git" "${wt}" >/dev/null 2>&1; cd "${wt}"; echo fork-only > fx; git add fx; git commit -qm 'fork-only commit on origin main'; git push -q origin main >/dev/null 2>&1 ) >/dev/null 2>&1
+check "sync-default: a fork mirror with its own commits is refused (never --force), nothing changed" 4 "mirror is not pure" "-" \
+  "$(ghenv s5); o=\$(git --git-dir '${W}/s5-origin.git' rev-parse main); ${SYNC} sync-default --repo '${W}/s5' --default-branch main; rc=\$?; [ \"\$(git --git-dir '${W}/s5-origin.git' rev-parse main)\" = \"\$o\" ] && ! grep -q 'repo sync' '${W}/s5.gh.log'; exit \$rc"
+newfork s6 v1.0.0
+check "sync-default: a parent that is a different repository (other id) is refused" 4 "parent is .* \\(id 999\\)" "-" \
+  "$(ghenv s6); export GH_PARENT_ID=999 GH_PARENT_NAME=someone/else; ${SYNC} sync-default --repo '${W}/s6' --default-branch main; rc=\$?; ! grep -q 'repo sync' '${W}/s6.gh.log'; exit \$rc"
+newfork s7 v1.0.0
+git -C "${W}/s7" update-ref refs/heads/main "${M3}"
+check "sync-default: gh not authenticated is refused and local stays where it was" 2 "gh is missing or not authenticated" "-" \
+  "$(ghenv s7); export GH_AUTH=no; ${SYNC} sync-default --repo '${W}/s7' --default-branch main; rc=\$?; [ \"\$(git -C '${W}/s7' rev-parse main)\" = '${M3}' ]; exit \$rc"
+newfork s8 v1.0.0
+git -C "${W}/s8" update-ref refs/heads/main "${M3}"
+o8="$(git --git-dir "${W}/s8-origin.git" rev-parse main)"
+check "sync-default: --no-remote skips gh and follows upstream directly" 0 "-" "skipping the GitHub hop" \
+  "$(ghenv s8); ${SYNC} sync-default --repo '${W}/s8' --default-branch main --no-remote; [ ! -s '${W}/s8.gh.log' ] && [ \"\$(git -C '${W}/s8' rev-parse main)\" = '${M5}' ] && [ \"\$(git --git-dir '${W}/s8-origin.git' rev-parse main)\" = '${o8}' ]"
+newfork s9 v1.0.0
+git -C "${UP}" branch -q m4pin "${M4}"
+git -C "${W}/s9" update-ref refs/heads/main "${M3}"; git -C "${W}/s9-origin.git" update-ref refs/heads/main "${M3}"
+check "sync-default: local follows the fork's mirror, not upstream (upstream moved after GitHub synced)" 0 "-" "NOTE: upstream/main moved" \
+  "$(ghenv s9); export GH_SYNC_REF=m4pin; ${SYNC} sync-default --repo '${W}/s9' --default-branch main; [ \"\$(git -C '${W}/s9' rev-parse main)\" = '${M4}' ] && [ \"\$(git -C '${W}/s9' rev-parse upstream/main)\" = '${M5}' ]"
+git -C "${UP}" branch -q -D m4pin
+
+newfork s10 v1.0.0
+git -C "${W}/s10" update-ref refs/heads/main "${M3}"; git -C "${W}/s10-origin.git" update-ref refs/heads/main "${M3}"
+check "sync-default: a renamed or transferred upstream (different NAME, same repository id) is accepted" 0 "-" "gh: Synced" \
+  "$(ghenv s10); export GH_PARENT_NAME=NewOrg/renamed-thing; ${SYNC} sync-default --repo '${W}/s10' --default-branch main"
 newfork s4 v1.0.0
 check "default branch: read from upstream/HEAD when set" 0 "-" "upstream ref: upstream/trunkish" \
   "cd '${W}/s4'; git branch -q trunkish main; git push -q upstream trunkish 2>/dev/null; git fetch -q upstream; git remote set-head upstream trunkish >/dev/null; ${SYNC} plan 2>&1 | head -3"

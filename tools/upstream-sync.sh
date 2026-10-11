@@ -2,12 +2,16 @@
 # tools/upstream-sync.sh <plan|sync-default|merge> [options]
 #
 # Brings a tuned fork up to a named upstream point. Read the policy and the reasons
-# in docs/UPSTREAM_SYNC.md. Nothing here ever pushes, forces, or deletes.
+# in docs/UPSTREAM_SYNC.md. The only remote change is sync-default's server-side
+# fast-forward of the fork's default branch (gh repo sync, never --force). Nothing
+# else here pushes, forces, or deletes.
 #
 #   plan          (default) read-only report: the default-branch mirror state, the
 #                 chosen target, every gate, and what --apply would do.
-#   sync-default  fast-forward the LOCAL default branch to upstream's. Fetch +
-#                 fast-forward only. Prints the second hop (origin) instead of doing it.
+#   sync-default  the fork's GitHub mirror first, then local: (1) check everything
+#                 locally, changing nothing; (2) gh repo sync <fork> --branch <default>
+#                 (server-side, fast-forward only, never --force); (3) fetch origin and
+#                 fast-forward the local default branch from it. Local follows the mirror.
 #   merge         merge a named upstream tag (--tag) or an upstream-main commit (--pin)
 #                 into the tuned branch. Dry run unless --apply.
 #
@@ -27,6 +31,8 @@
 #   --tag TAG | --pin SHA   the merge target (default for plan: newest stable local tag)
 #   --fetch                 fetch the default branch and the stable tags first
 #   --apply                 (merge) really merge; creates <branch>-backup-<date> first
+#   --no-remote             (sync-default) skip the GitHub hop; fast-forward local straight
+#                           from upstream (offline, or when you will sync the fork yourself)
 #   --allow-counter-release-tag
 #                           override the counter-label refusal (see the gates)
 #
@@ -43,7 +49,7 @@ UP_REF="${GPU_TUNED_UPSTREAM_REF:-}"
 TAG_RE="${GPU_TUNED_UPSTREAM_TAG_RE:-^v[0-9]+\.[0-9]+\.[0-9]+\$}"
 TAG_GLOB="${GPU_TUNED_UPSTREAM_TAG_GLOB:-v*}"
 MARKERS="${GPU_TUNED_FORK_MARKERS:-gpu_tuned_}"
-TARGET_TAG=""; TARGET_PIN=""; DO_FETCH=0; APPLY=0; ALLOW_COUNTER=0
+TARGET_TAG=""; TARGET_PIN=""; DO_FETCH=0; APPLY=0; ALLOW_COUNTER=0; NO_REMOTE=0
 FAILED=0; FAIL_RC=4
 
 die()  { echo "ERROR: $*" >&2; exit "${RC:-2}"; }
@@ -70,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --fetch) DO_FETCH=1; shift ;;
         --apply) APPLY=1; shift ;;
         --allow-counter-release-tag) ALLOW_COUNTER=1; shift ;;
+        --no-remote) NO_REMOTE=1; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "ERROR: unknown option '$1' (see --help)" >&2; exit 1 ;;
     esac
@@ -112,11 +119,8 @@ report_mirror() {
     fi
 }
 
-origin_hop_hint() {
-    local slug
-    slug="$(gpu_tuned_public_repo_url "$(git remote get-url origin 2>/dev/null || true)" | sed 's#^https://github.com/##')"
-    note "second hop (NOT done by this tool; a remote change, needs your approval each time):"
-    note "  gh repo sync ${slug:-<owner/repo>} --branch ${DB}"
+fork_slug() {
+    gpu_tuned_public_repo_url "$(git remote get-url origin 2>/dev/null || true)" | sed 's#^https://github.com/##'
 }
 
 preflight() {
@@ -302,26 +306,61 @@ do_merge() {
 }
 
 do_sync_default() {
+    local slug parent up_slug up_id local_ok=0
     detect_default_branch; [[ -n "${UP_REF}" ]] || UP_REF="upstream/${DB}"
     fetch_upstream
-    report_mirror
-    if ! git rev-parse -q --verify "refs/remotes/upstream/${DB}" >/dev/null; then RC=2 die "upstream/${DB} is not fetched"; fi
+    git rev-parse -q --verify "refs/remotes/upstream/${DB}" >/dev/null || { RC=2 die "upstream/${DB} is not fetched"; }
+
+    echo "== 1. checks (nothing is changed until all pass)"
     if git rev-parse -q --verify "refs/heads/${DB}" >/dev/null; then
+        local_ok=1
+        # local may only be behind the mirror, never ahead of it or diverged
         if ! git merge-base --is-ancestor "refs/heads/${DB}" "refs/remotes/upstream/${DB}"; then
-            RC=4 die "local ${DB} has commits upstream/${DB} lacks (not a fast-forward); this mirror must stay pure. Nothing changed."
+            RC=4 die "local ${DB} has commits upstream/${DB} lacks (not a fast-forward); the mirror must stay pure. Nothing changed."
         fi
         if [[ "$(git symbolic-ref -q --short HEAD 2>/dev/null || true)" == "${DB}" ]]; then
-            RC=2 die "${DB} is checked out here; the tool will not move the checked-out branch"
+            RC=2 die "${DB} is checked out here; the tool will not move the checked-out branch. Nothing changed."
         fi
-        if git fetch -q . "refs/remotes/upstream/${DB}:refs/heads/${DB}" 2>&1; then
-            note "local ${DB} is now $(short "refs/heads/${DB}")"
-        else
-            RC=2 die "could not fast-forward ${DB} (checked out in another worktree?)"
-        fi
-    else
-        git branch "${DB}" "refs/remotes/upstream/${DB}"; note "created local ${DB} at $(short "refs/heads/${DB}")"
     fi
-    origin_hop_hint
+    if [[ "${NO_REMOTE}" -eq 1 ]]; then
+        note "--no-remote: skipping the GitHub hop; local follows upstream directly"
+        git fetch -q . "refs/remotes/upstream/${DB}:refs/heads/${DB}" 2>&1 || { RC=2 die "could not fast-forward ${DB} from upstream"; }
+        report_mirror
+        note "local ${DB} is now $(short "refs/heads/${DB}")"; return 0
+    fi
+    command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 ||
+        { RC=2 die "gh is missing or not authenticated, so the fork's mirror cannot be synced. Nothing changed. (--no-remote skips that hop.)"; }
+    slug="$(fork_slug)"; [[ -n "${slug}" ]] || { RC=2 die "cannot read the fork's GitHub name from the origin remote"; }
+    up_slug="$(gpu_tuned_public_repo_url "$(git remote get-url upstream)" | sed 's#^https://github.com/##')"
+    # Compare repository IDs, not names: they survive renames and org transfers (rapidsai/cuvs
+    # is now NVIDIA/cuvs, and GitHub lists the fork's parent under the new name).
+    parent="$(gh api "repos/${slug}" --jq '(.parent.id // empty | tostring) + " " + (.parent.full_name // "")' 2>/dev/null || true)"
+    up_id="$(gh api "repos/${up_slug}" --jq '.id | tostring' 2>/dev/null || true)"
+    if [[ -z "${parent%% *}" || -z "${up_id}" || "${parent%% *}" != "${up_id}" ]]; then
+        RC=4 die "GitHub says ${slug}'s parent is '${parent#* }' (id ${parent%% *}), but the upstream remote '${up_slug}' is id '${up_id:-unknown}'; gh repo sync would pull from the wrong place. Nothing changed."
+    fi
+    git fetch -q origin "+refs/heads/${DB}:refs/remotes/origin/${DB}" 2>&1 || { RC=2 die "cannot fetch origin/${DB}"; }
+    if ! git merge-base --is-ancestor "refs/remotes/origin/${DB}" "refs/remotes/upstream/${DB}"; then
+        RC=4 die "origin/${DB} has commits upstream/${DB} lacks, so the fork's mirror is not pure and a fast-forward sync is impossible. Nothing changed (no --force is ever used)."
+    fi
+    report_mirror
+
+    echo "== 2. fork mirror: gh repo sync ${slug} --branch ${DB}"
+    if ! gh repo sync "${slug}" --branch "${DB}" 2>&1 | sed 's/^/  gh: /'; then
+        RC=4 die "gh repo sync failed; local is unchanged"
+    fi
+
+    echo "== 3. local: fetch origin, fast-forward ${DB} from it"
+    git fetch -q origin "+refs/heads/${DB}:refs/remotes/origin/${DB}" 2>&1 || { RC=2 die "cannot fetch origin/${DB} after the sync"; }
+    if [[ "${local_ok}" -eq 1 ]]; then
+        git fetch -q . "refs/remotes/origin/${DB}:refs/heads/${DB}" 2>&1 || { RC=2 die "could not fast-forward ${DB} from origin (checked out in another worktree?)"; }
+    else
+        git branch "${DB}" "refs/remotes/origin/${DB}"
+    fi
+    note "origin/${DB} $(short "refs/remotes/origin/${DB}")   local ${DB} $(short "refs/heads/${DB}")   upstream/${DB} $(short "refs/remotes/upstream/${DB}")"
+    if [[ "$(git rev-parse "refs/heads/${DB}")" != "$(git rev-parse "refs/remotes/upstream/${DB}")" ]]; then
+        note "NOTE: upstream/${DB} moved while this ran; the mirror is one sync behind. Re-run."
+    fi
 }
 
 case "${CMD}" in

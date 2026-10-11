@@ -5,9 +5,10 @@ parts: `tools/upstream-sync.sh`. The reasoning comes from
 [upstream-vs-tuned-versions.json](upstream-vs-tuned-versions.json) (how each upstream tags
 and versions, a snapshot) and the real `plan` runs recorded below.
 
-**The tool never pushes, forces, deletes, or switches your branch.** `plan` changes nothing.
-`merge` is a dry run unless `--apply`. The only thing it moves without `--apply` is local
-refs under `sync-default` and `--fetch`.
+**The tool never runs `git push`, forces, deletes, or switches your branch.** `plan` changes
+nothing. `merge` is a dry run unless `--apply`. The one remote change it makes is
+`sync-default`'s server-side fast-forward of the fork's default branch (`gh repo sync`, never
+`--force`); everything else only moves local refs.
 
 ## The model
 
@@ -15,8 +16,9 @@ Two things are called "sync", and they are separate:
 
 1. **The mirror.** The fork's default branch (`main`/`master`) is kept a pure copy of
    upstream's. It exists so `git diff main..tuned-builds` shows only our work. It moves
-   *fast-forward only*, in two hops: upstream -> local branch (the tool does this), then
-   local -> the fork's `origin` (a push; the tool prints the command and stops).
+   *fast-forward only*, **GitHub first, then local**: `gh repo sync` updates the fork's
+   mirror on GitHub, then the local branch just pulls from `origin`. The fork's mirror is the
+   authority and local only follows it, so local can never run ahead of it.
 2. **The tuned branch** (`tuned-builds`) moves to a *named upstream point* by a merge: a
    stable **tag**, or a **pinned commit** of upstream's default branch.
 
@@ -76,10 +78,9 @@ T=~/gh/tuned-common/tools/upstream-sync.sh
 # 1. Look first. Fetches the default branch and the stable tags, changes nothing else.
 $T plan --repo ~/gh/<repo> --fetch [--default-branch master] [--tag-re REGEX]
 
-# 2. Refresh the local mirror (fast-forward only; refuses if it has diverged).
-$T sync-default --repo ~/gh/<repo>
-#    It prints the second hop. That is a remote change: approve it, then run it.
-gh repo sync <owner>/<repo> --branch <default>
+# 2. Refresh the mirror: the fork on GitHub first (gh repo sync), then local pulls from origin.
+#    All local checks run before anything is changed; the GitHub hop is a fast-forward only.
+$T sync-default --repo ~/gh/<repo>          # --no-remote skips GitHub and follows upstream directly
 
 # 3. Dry-run the merge, then do it.
 $T merge --repo ~/gh/<repo> --tag vX.Y.Z            # or --pin <sha>
@@ -99,9 +100,9 @@ fork markers; commits only if they pass. It then prints the stamp base, which re
 |---|---|
 | 0 | ok (or nothing to do) |
 | 1 | usage, or not a fork |
-| 2 | preflight: dirty tracked tree, not on the tuned branch, or a merge already in progress |
+| 2 | preflight: dirty tracked tree, not on the tuned branch, or a merge already in progress; for `sync-default`: `gh` missing or not authenticated, or the checked-out branch is the default branch |
 | 3 | merge conflict. The merge is **left in progress**; resolve and commit, or `git merge --abort`. Then re-check the fork markers on the resolved tree by hand |
-| 4 | a gate refused: the carry gate, the counter-label rule, a pin that is not upstream's, a tag not matching the stable pattern, or a stale local tag |
+| 4 | a gate refused: the carry gate, the counter-label rule, a pin that is not upstream's, a tag not matching the stable pattern, a stale local tag; for `sync-default`: a diverged local mirror, a fork mirror that is not a pure ancestor of upstream, or a GitHub parent that is not the upstream remote |
 | 5 | a fork marker was lost. The merge is **staged but not committed** |
 
 - **Carry gate:** every commit on upstream's default branch that `HEAD` carries must be in
@@ -111,6 +112,13 @@ fork markers; commits only if they pass. It then prints the stamp base, which re
 - **Pin gate:** a pin must be an ancestor of the upstream ref.
 - **Stale tags:** `plan` asks upstream for its newest stable tag and warns when the fetched
   one is older; `--apply` refuses on a stale tag. Re-run with `--fetch`.
+- **`sync-default` checks** (all before the GitHub hop, so a refusal changes nothing): the local
+  default branch is only behind upstream's (never ahead or diverged) and is not the checked-out
+  branch; `origin/<default>` is an ancestor of `upstream/<default>` (a pure mirror: a fork's own
+  commits make a fast-forward sync impossible, and `--force` is never used); and GitHub's
+  recorded parent of the fork is the same repository as the `upstream` remote, compared by
+  repository **id** (names change: `rapidsai/cuvs` is now `NVIDIA/cuvs`, same id). If upstream
+  moves between GitHub's sync and the local pull, it says so and the mirror is one sync behind.
 - **Fork markers:** `--markers a,b` (default `gpu_tuned_`). For each, the line count in the
   merged index must not fall below its count before the merge. Add the strings your fork
   keeps in upstream-owned files (seed list from past incidents: `_wheel_kind`,
