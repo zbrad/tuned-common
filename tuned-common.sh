@@ -1184,6 +1184,19 @@ gpu_tuned_allocate_date_label() {
     if [ "${seq}" = 0 ]; then printf '%s\n' "${date}"; else printf '%s.%s\n' "${date}" "${seq}"; fi
 }
 
+# gpu_tuned_build_local_version <variant> [dir] [remote] -- the complete tuned local-version
+# suffix for a build of HEAD: <variant>.cu<cuda>.<YYYYMMDD>[.<seq>], e.g. gb10.cu134.20261011.
+# The one place a wheel script gets its label: <cuda> from the nvcc that will compile
+# (gpu_tuned_nvcc_compact, needs CUDA_HOME), date and sequence from gpu_tuned_allocate_date_label
+# (which reads <remote>'s tags; GPU_TUNED_LABEL_SEQ=<n> skips that, e.g. =0 for a dev build that
+# is never published), assembled by gpu_tuned_local_version_dated. Fails loudly at any step.
+gpu_tuned_build_local_version() {
+    local variant="${1:-}" dir="${2:-.}" remote="${3:-origin}" cuda label
+    cuda="$(gpu_tuned_nvcc_compact)" || return 1
+    label="$(gpu_tuned_allocate_date_label "${dir}" "${remote}")" || return 1
+    gpu_tuned_local_version_dated "${variant}" "${cuda}" "${label%%.*}" "$(gpu_tuned_label_seq "${label}")"
+}
+
 # gpu_tuned_check_main_current [repo-dir] -- fails loudly if the tuning counter
 # (git rev-list --count main..HEAD, see gpu_tuned_tuning_count) would include
 # upstream's commits rather than only ours. That happens when upstream has been

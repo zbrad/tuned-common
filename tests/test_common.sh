@@ -308,6 +308,17 @@ check "allocate: a non-canonical GPU_TUNED_LABEL_SEQ is refused" 1 "canonical in
   "${pre}; ${aw}; GPU_TUNED_LABEL_SEQ=01 gpu_tuned_allocate_date_label"
 check "allocate: the result round-trips through local_version_dated and date_label" 0 "-" "^20261011\\.2$" \
   "${pre}; ${aw}; L=\"\$(gpu_tuned_allocate_date_label)\"; V=\"\$(gpu_tuned_local_version_dated gb10 134 \"\$(gpu_tuned_head_date)\" \"\$(gpu_tuned_label_seq \"\$L\")\")\"; gpu_tuned_date_label \"0.1+\${V}\""
+mkdir -p "${al}/cuda-13.4/bin"; printf '#!/bin/sh\nprintf "Cuda compilation tools, release 13.4, V13.4.48\\n"\n' > "${al}/cuda-13.4/bin/nvcc"; chmod +x "${al}/cuda-13.4/bin/nvcc"
+check "build_local_version: the whole suffix, from nvcc, HEAD's UTC date and the next free sequence" 0 "-" "^gb10\\.cu134\\.20261011\\.2$" \
+  "${pre}; ${aw}; CUDA_HOME='${al}/cuda-13.4' gpu_tuned_build_local_version gb10 ."
+check "build_local_version: GPU_TUNED_LABEL_SEQ=0 is the dev-build form, no lookup" 0 "-" "^gb10\\.cu134\\.20261011$" \
+  "${pre}; ${aw}; CUDA_HOME='${al}/cuda-13.4' GPU_TUNED_LABEL_SEQ=0 gpu_tuned_build_local_version gb10 . nowhere"
+check "build_local_version: no CUDA_HOME is a loud error" 1 "CUDA_HOME is not set" "-" \
+  "${pre}; ${aw}; unset CUDA_HOME; gpu_tuned_build_local_version gb10 ."
+check "build_local_version: an unreadable remote is a loud error, not a guessed label" 1 "cannot read tags from remote" "-" \
+  "${pre}; ${aw}; CUDA_HOME='${al}/cuda-13.4' gpu_tuned_build_local_version gb10 . nowhere"
+check "build_local_version: its output is read back by gpu_tuned_date_label" 0 "-" "^20261011\\.2$" \
+  "${pre}; ${aw}; V=\"\$(CUDA_HOME='${al}/cuda-13.4' gpu_tuned_build_local_version gb10 .)\"; gpu_tuned_date_label \"0.1+\${V}\""
 rm -rf "${al}"
 
 # --- CUDA-version-specific output dirs ---
