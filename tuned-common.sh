@@ -1074,6 +1074,32 @@ gpu_tuned_date_label() {
     return 0
 }
 
+# gpu_tuned_nvcc_compact [cuda-home] -- the CUDA release that <cuda-home>/bin/nvcc reports,
+# without the dot ("134" for 13.4, "1310" for 13.10), for the <cuda> part of a wheel label.
+# <cuda-home> defaults to $CUDA_HOME. Reads the nvcc that will really compile, not a directory
+# name, so the label cannot disagree with the build; a wheel script that also lets setup.py
+# read nvcc (vllm) gets the same answer in both places. Not truncated: vllm's old setup.py cut
+# it to three characters, which would turn 13.10 into "131". Fails loudly if nvcc is absent
+# or its output cannot be read.
+gpu_tuned_nvcc_compact() {
+    local home="${1:-${CUDA_HOME:-}}" out rel
+    if [ -z "${home}" ]; then
+        echo "ERROR: gpu_tuned_nvcc_compact: no CUDA home given and CUDA_HOME is not set." >&2
+        return 1
+    fi
+    if [ ! -x "${home}/bin/nvcc" ]; then
+        echo "ERROR: gpu_tuned_nvcc_compact: ${home}/bin/nvcc is not an executable." >&2
+        return 1
+    fi
+    out="$("${home}/bin/nvcc" --version 2>/dev/null || true)"
+    rel="$(printf '%s\n' "${out}" | grep -oE 'release [0-9]+\.[0-9]+' | head -1 | awk '{print $2}' || true)"
+    if [[ ! "${rel}" =~ ^[0-9]+\.[0-9]+$ ]]; then
+        echo "ERROR: gpu_tuned_nvcc_compact: cannot read a 'release X.Y' from ${home}/bin/nvcc --version." >&2
+        return 1
+    fi
+    printf '%s\n' "${rel/./}"
+}
+
 # gpu_tuned_head_date [dir] -- prints the UTC committer date of HEAD as YYYYMMDD: the
 # date a build of this commit is labelled with, so rebuilding the same commit reproduces
 # its label. Read with TZ=UTC and --date=format-local, NOT --date=format: the latter uses

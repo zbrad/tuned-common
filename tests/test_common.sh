@@ -246,6 +246,20 @@ check "legacy gpu_tuned_local_version is unchanged" 0 "-" "^gb10\.cu134\.tuning\
 check "legacy gpu_tuned_tuning_label is unchanged" 0 "-" "^tuning\.149$" \
   "${pre}; gpu_tuned_tuning_label '0.7.0+gb10.cu134.tuning.149'"
 
+# --- nvcc -> compact cuda tag ---
+nv="$(mktemp -d)"; mkdir -p "${nv}/cuda-13.4/bin" "${nv}/cuda-12.10/bin" "${nv}/broken/bin"
+mknvcc() { printf '#!/bin/sh\nprintf "nvcc: NVIDIA (R) Cuda compiler driver\\nCuda compilation tools, release %s, V%s.48\\n"\n' "$2" "$2" > "$1/bin/nvcc"; chmod +x "$1/bin/nvcc"; }
+mknvcc "${nv}/cuda-13.4" 13.4; mknvcc "${nv}/cuda-12.10" 12.10
+printf '#!/bin/sh\necho "no version here"\n' > "${nv}/broken/bin/nvcc"; chmod +x "${nv}/broken/bin/nvcc"
+check "nvcc_compact: 13.4 -> 134" 0 "-" "^134$" "${pre}; gpu_tuned_nvcc_compact '${nv}/cuda-13.4'"
+check "nvcc_compact: two-digit minor is kept whole, not cut to three characters" 0 "-" "^1210$" "${pre}; gpu_tuned_nvcc_compact '${nv}/cuda-12.10'"
+check "nvcc_compact: defaults to CUDA_HOME" 0 "-" "^134$" "${pre}; CUDA_HOME='${nv}/cuda-13.4' gpu_tuned_nvcc_compact"
+check "nvcc_compact: the argument wins over CUDA_HOME" 0 "-" "^1210$" "${pre}; CUDA_HOME='${nv}/cuda-13.4' gpu_tuned_nvcc_compact '${nv}/cuda-12.10'"
+check "nvcc_compact: no cuda home at all is a loud error" 1 "CUDA_HOME is not set" "-" "${pre}; unset CUDA_HOME; gpu_tuned_nvcc_compact"
+check "nvcc_compact: a missing nvcc is a loud error" 1 "is not an executable" "-" "${pre}; gpu_tuned_nvcc_compact '${nv}/nowhere'"
+check "nvcc_compact: unreadable nvcc output is a loud error, not an empty tag" 1 "cannot read a 'release X.Y'" "-" "${pre}; gpu_tuned_nvcc_compact '${nv}/broken'"
+rm -rf "${nv}"
+
 # --- allocator: HEAD date (UTC) and lowest unused sequence ---
 al="$(mktemp -d)"
 (
