@@ -179,6 +179,33 @@ check "embed_build_info: stamp carries fork+upstream hashes ahead of ', commit '
   "${pre}; ${stamp}; ${inrepo}; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_embed_build_info \"\$T\" gb10 pkg 1.0 HW; ${read_stamp}"
 rm -rf "${prov}"
 
+# --- publish gate: clean tracked tree ---
+gate="$(mktemp -d)"
+(
+    set -e; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+    git init -q -b tuned-builds "${gate}/r"; cd "${gate}/r"
+    echo 1 > tracked; git add tracked; git commit -qm c1
+    mkdir "${gate}/bin"; printf '#!/bin/sh\necho gh-called "$@" >> "%s/gh.log"\n' "${gate}" > "${gate}/bin/gh"; chmod +x "${gate}/bin/gh"
+) >/dev/null 2>&1
+ingate="cd '${gate}/r'; export PATH='${gate}/bin':\"\$PATH\"; : > '${gate}/gh.log'"
+check "clean_tree: a clean tree passes and names the tree it checked" 0 "-" "OK: clean tracked tree at .*/r " \
+  "${pre}; ${ingate}; gpu_tuned_require_clean_tree"
+check "clean_tree: untracked files do not make the tree dirty" 0 "-" "^OK" \
+  "${pre}; ${ingate}; echo junk > build-output.o; gpu_tuned_require_clean_tree; rm -f build-output.o"
+check "clean_tree: a modified tracked file is refused and listed" 1 "refusing to publish from a dirty tree" "-" \
+  "${pre}; ${ingate}; echo 2 >> tracked; rc=0; gpu_tuned_require_clean_tree || rc=\$?; git checkout -q tracked; exit \$rc"
+check "clean_tree: the refusal lists the changed file" 1 " M tracked" "-" \
+  "${pre}; ${ingate}; echo 2 >> tracked; rc=0; gpu_tuned_require_clean_tree || rc=\$?; git checkout -q tracked; exit \$rc"
+check "clean_tree: a staged change is refused too" 1 "dirty tree" "-" \
+  "${pre}; ${ingate}; echo 3 >> tracked; git add tracked; rc=0; gpu_tuned_require_clean_tree || rc=\$?; git reset -q --hard; exit \$rc"
+check "clean_tree: outside a git checkout is refused" 1 "not inside a git checkout" "-" \
+  "${pre}; cd /; gpu_tuned_require_clean_tree"
+check "publish_release: a dirty tree is refused before gh is ever called" 1 "dirty tree" "-" \
+  "${pre}; ${ingate}; echo 2 >> tracked; rc=0; gpu_tuned_publish_release o/r tag title notes asset || rc=\$?; git checkout -q tracked; [ ! -s '${gate}/gh.log' ] && exit \$rc"
+check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r@tag" \
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r tag title notes asset; grep -q 'release create tag' '${gate}/gh.log'"
+rm -rf "${gate}"
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: cuda tag then variant under cpp/build" 0 "-" "^/r/cpp/build/cu133/gb10$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"

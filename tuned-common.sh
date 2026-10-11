@@ -794,6 +794,31 @@ gpu_tuned_wheel_version() {
     echo "${version}"
 }
 
+# gpu_tuned_require_clean_tree — refuses (returns 1) unless the git checkout in
+# the current directory has no uncommitted changes to tracked files. Called by
+# gpu_tuned_publish_release, so a published build always matches the commit its
+# build-info stamp names (a dirty tree stamps " dirty"). Untracked files are
+# ignored: build output lands there and would make every build dirty. There is
+# deliberately no override; local test builds don't publish. Prints which tree
+# it checked, because a few release scripts do not cd to the repo root first.
+gpu_tuned_require_clean_tree() {
+    local top changes
+    if ! top="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+        echo "ERROR: gpu_tuned_require_clean_tree: $(pwd) is not inside a git checkout, so a clean tree cannot be shown. Run from the repo root." >&2
+        return 1
+    fi
+    changes="$(git status --porcelain --untracked-files=no 2>/dev/null || true)"
+    if [ -n "${changes}" ]; then
+        echo "ERROR: refusing to publish from a dirty tree: ${top}" >&2
+        echo "  tracked files differ from HEAD ($(git rev-parse --short HEAD 2>/dev/null || echo '?')), so the build would not match its stamped commit:" >&2
+        printf '%s\n' "${changes}" | head -10 | sed 's/^/    /' >&2
+        [ "$(printf '%s\n' "${changes}" | wc -l)" -le 10 ] || echo "    ..." >&2
+        echo "  Commit or stash these, rebuild, then publish." >&2
+        return 1
+    fi
+    echo "OK: clean tracked tree at ${top} ($(git rev-parse --short HEAD 2>/dev/null || echo '?'))"
+}
+
 # gpu_tuned_publish_release <owner/repo> <tag> <title> <notes-or-@notes-file>
 # [asset-spec ...] — publish a GitHub release via `gh release create`,
 # always targeting the "tuned-builds" branch (every consumer in this fleet
@@ -808,12 +833,16 @@ gpu_tuned_wheel_version() {
 # nothing attached is always a caller mistake in this fleet (forgot to
 # build/package first), not a legitimate case.
 #
+# Refuses to publish from a dirty tree (gpu_tuned_require_clean_tree), run
+# against the current directory's checkout, before anything reaches `gh`.
+#
 # Consolidates a call independently hand-written 12 times across 10 repos
 # (raft alone 3x) -- see
 # ~/.claude/design/tuned-common-consolidation-candidates.md finding #1.
 gpu_tuned_publish_release() {
     local repo="$1" tag="$2" title="$3" notes="$4"
     shift 4
+    gpu_tuned_require_clean_tree || return 1
     if [[ $# -eq 0 ]]; then
         echo "ERROR: gpu_tuned_publish_release: no assets given (at least one is required)." >&2
         return 1
