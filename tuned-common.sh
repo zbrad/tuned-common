@@ -853,6 +853,143 @@ gpu_tuned_check_wheel_label() {
     return 1
 }
 
+# gpu_tuned_smoke_wheel <wheel> <dist-name> <import-name> [<stamp-section> <stamp-library>]
+# -- install a built wheel into a CLEAN throwaway venv and load it once, before anything is
+# published. Nothing from the build tree, the build venv or the repo is on the path: the probe
+# runs with `python -I` from an empty directory, so it sees only what a user of the wheel would.
+# Checks, in order, each failing loudly:
+#   1. the file name carries a date-form label (gpu_tuned_check_wheel_label);
+#   2. the wheel's python tag fits the interpreter that will load it;
+#   3. it installs, and the venv holds exactly ONE <dist-name> distribution at exactly the
+#      wheel's version (a stock wheel pulled in as a dependency would show up here);
+#   4. `import <import-name>` works, its __version__ is the wheel's version, and it is loaded from
+#      inside the venv;
+#   5. if <stamp-section> and <stamp-library> are given, the build-info stamp in the installed
+#      <stamp-library> names that version (gpu_tuned_verify_build_info);
+#   6. for import-name torch: CUDA is usable, torch.version.cuda is the release the label's cu<NNN>
+#      names, a small GPU matmul is correct, and (when GPU_TUNED_SMOKE_EXPECT_CAP=<major.minor> is
+#      set) the device capability is that one.
+# Needs network for the wheel's pure-python dependencies unless GPU_TUNED_SMOKE_FIND_LINKS=<dir>
+# is set (then `--no-index --find-links`). GPU_TUNED_SMOKE_SKIP_LABEL=1 skips step 1 and says so,
+# for a wheel built before the date form; the skip is printed, never counted as a pass.
+# GPU_TUNED_SMOKE_KEEP=1 keeps the venv and prints its path.
+gpu_tuned_smoke_wheel() {
+    local wheel="${1:-}" dist="${2:-}" imp="${3:-}" section="${4:-}" stamp_lib="${5:-}"
+    local fn="gpu_tuned_smoke_wheel"
+    if [[ -z "${wheel}" || -z "${dist}" || -z "${imp}" ]]; then
+        echo "ERROR: ${fn}: usage: ${fn} <wheel> <dist-name> <import-name> [<stamp-section> <stamp-library>]" >&2
+        return 1
+    fi
+    [[ -f "${wheel}" ]] || { echo "ERROR: ${fn}: ${wheel} is not a file." >&2; return 1; }
+    local base version local_part
+    base="$(basename "${wheel}")"
+    version="$(gpu_tuned_wheel_version "${wheel}" "${dist//-/_}")" || return 1
+
+    if [[ "${GPU_TUNED_SMOKE_SKIP_LABEL:-}" == 1 ]]; then
+        echo "SKIP: ${fn}: version label check (GPU_TUNED_SMOKE_SKIP_LABEL=1)"
+    else
+        gpu_tuned_check_wheel_label "${wheel}" || return 1
+    fi
+
+    local pytag interp_tag
+    pytag="$(printf '%s' "${base}" | sed -E 's/^[^-]+-[^-]+-([^-]+)-.*/\1/')"
+    interp_tag="$(python3 -c 'import sys; print(f"cp{sys.version_info[0]}{sys.version_info[1]}")')" || return 1
+    if [[ "${pytag}" == cp* && "${pytag}" != "${interp_tag}" ]]; then
+        echo "ERROR: ${fn}: ${base} is built for ${pytag} but python3 is ${interp_tag}; the smoke test would load nothing." >&2
+        return 1
+    fi
+
+    local venv work rc=0
+    work="$(mktemp -d)"
+    venv="${work}/venv"
+    python3 -m venv "${venv}" || { rm -rf "${work}"; return 1; }
+    local pip_args=(install --quiet)
+    if [[ -n "${GPU_TUNED_SMOKE_FIND_LINKS:-}" ]]; then
+        pip_args+=(--no-index --find-links "${GPU_TUNED_SMOKE_FIND_LINKS}" --find-links "$(dirname "${wheel}")")
+    fi
+    echo "smoke: installing ${base} into a clean venv"
+    if ! env -u PYTHONPATH -u PYTHONHOME "${venv}/bin/python" -m pip "${pip_args[@]}" "${wheel}" >"${work}/pip.log" 2>&1; then
+        echo "ERROR: ${fn}: pip could not install ${base}:" >&2
+        tail -15 "${work}/pip.log" >&2
+        rm -rf "${work}"
+        return 1
+    fi
+
+    mkdir "${work}/empty"
+    local probe="${work}/probe.out"
+    ( cd "${work}/empty" && env -u PYTHONPATH -u PYTHONHOME "${venv}/bin/python" -I - "${dist}" "${imp}" >"${probe}" 2>"${work}/probe.err" <<'PY'
+import importlib
+import importlib.metadata as md
+import re
+import sys
+
+dist, imp = sys.argv[1:3]
+norm = lambda s: re.sub(r"[-_.]+", "-", s).lower()
+print("dists=" + ",".join(sorted(d.version for d in md.distributions() if norm(d.metadata["Name"] or "") == norm(dist))))
+mod = importlib.import_module(imp)
+print("module_version=" + str(getattr(mod, "__version__", "")))
+print("module_file=" + str(getattr(mod, "__file__", "")))
+if imp == "torch":
+    cuda = mod.cuda
+    print("cuda_available=" + str(cuda.is_available()))
+    print("cuda_version=" + str(mod.version.cuda))
+    if cuda.is_available():
+        print("capability=%d.%d" % cuda.get_device_capability(0))
+        a = mod.arange(16, dtype=mod.float32, device="cuda").reshape(4, 4)
+        print("matmul_ok=" + str(bool(mod.allclose((a @ a).cpu(), a.cpu() @ a.cpu()))))
+PY
+    ) || rc=$?
+    if [[ ${rc} -ne 0 ]]; then
+        echo "ERROR: ${fn}: loading ${imp} from the clean venv failed (exit ${rc}):" >&2
+        tail -15 "${work}/probe.err" >&2
+        [[ "${GPU_TUNED_SMOKE_KEEP:-}" == 1 ]] && echo "venv kept: ${venv}" >&2 || rm -rf "${work}"
+        return 1
+    fi
+
+    local key val dists="" modver="" modfile="" cuda_avail="" cuda_ver="" cap="" mm=""
+    while IFS== read -r key val; do
+        case "${key}" in
+            dists) dists="${val}" ;; module_version) modver="${val}" ;; module_file) modfile="${val}" ;;
+            cuda_available) cuda_avail="${val}" ;; cuda_version) cuda_ver="${val}" ;;
+            capability) cap="${val}" ;; matmul_ok) mm="${val}" ;;
+        esac
+    done <"${probe}"
+
+    local problems=()
+    [[ "${dists}" == "${version}" ]] || problems+=("installed ${dist} versions are '${dists}', expected exactly '${version}'")
+    [[ "${modver}" == "${version}" ]] || problems+=("${imp}.__version__ is '${modver}', expected '${version}'")
+    [[ "${modfile}" == "${venv}"/* ]] || problems+=("${imp} loaded from '${modfile}', not from inside the clean venv")
+    if [[ -n "${section}" && -n "${stamp_lib}" ]]; then
+        local lib
+        lib="$(find "${venv}" -name "${stamp_lib}" -not -type l 2>/dev/null | head -1)"
+        if [[ -z "${lib}" ]]; then
+            problems+=("stamp library ${stamp_lib} not found in the installed wheel")
+        elif ! gpu_tuned_verify_build_info "${lib}" "${dist}" "${version}" "${section}" >/dev/null 2>"${work}/stamp.err"; then
+            problems+=("build-info stamp in ${stamp_lib}: $(tr '\n' ' ' <"${work}/stamp.err")")
+        fi
+    fi
+    if [[ "${imp}" == torch ]]; then
+        local label_cuda
+        label_cuda="$(printf '%s' "${version}" | sed -nE 's/.*\.cu([0-9]+)\..*/\1/p')"
+        [[ "${cuda_avail}" == True ]] || problems+=("torch.cuda.is_available() is '${cuda_avail}'")
+        if [[ -n "${label_cuda}" ]]; then
+            [[ "${cuda_ver/./}" == "${label_cuda}" ]] || problems+=("torch.version.cuda is '${cuda_ver}' but the label says cu${label_cuda}")
+        fi
+        [[ "${mm}" == True ]] || problems+=("GPU matmul check returned '${mm}'")
+        if [[ -n "${GPU_TUNED_SMOKE_EXPECT_CAP:-}" && "${cap}" != "${GPU_TUNED_SMOKE_EXPECT_CAP}" ]]; then
+            problems+=("device capability is '${cap}', expected ${GPU_TUNED_SMOKE_EXPECT_CAP}")
+        fi
+    fi
+
+    if [[ "${GPU_TUNED_SMOKE_KEEP:-}" == 1 ]]; then echo "venv kept: ${venv}"; else rm -rf "${work}"; fi
+    if [[ ${#problems[@]} -gt 0 ]]; then
+        local p
+        for p in "${problems[@]}"; do echo "ERROR: ${fn}: ${p}" >&2; done
+        return 1
+    fi
+    echo "OK: ${fn}: ${base} installs and loads cleanly (${imp} ${modver}${cap:+, device ${cap}, cuda ${cuda_ver}})"
+}
+
 # gpu_tuned_publish_release <owner/repo> <tag> <title> <notes-or-@notes-file>
 # [asset-spec ...] — publish a GitHub release via `gh release create`,
 # always targeting the "tuned-builds" branch (every consumer in this fleet

@@ -216,6 +216,49 @@ check "wheel_label: legacy tuning.vN is refused even with the override" 1 "is no
 check "wheel_label: an impossible calendar date is refused" 1 "not a real calendar date" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20260230)"
 check "wheel_label: a .0 sequence is refused" 1 "is not <variant>" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20261011.0)"
 check "wheel_label: a non-wheel name is refused" 1 "not a wheel file name" "-" "${pre}; gpu_tuned_check_wheel_label model.tar.gz"
+# --- smoke test of a built wheel (toy wheels; the GPU part needs a real torch wheel) ---
+toy="$(mktemp -d)"
+python3 - "${toy}" <<'PY'
+import sys, zipfile
+out = sys.argv[1]
+def make(dist, filever, modver, tag="py3-none-any", metaver=None):
+    name = f"{out}/{dist}-{filever}-{tag}.whl"
+    di = f"{dist}-{filever}.dist-info"
+    files = {
+        f"{dist}/__init__.py": f'__version__ = "{modver}"\n',
+        f"{di}/METADATA": f"Metadata-Version: 2.1\nName: {dist}\nVersion: {metaver or filever}\n",
+        f"{di}/WHEEL": "Wheel-Version: 1.0\nGenerator: toy\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+    }
+    files[f"{di}/RECORD"] = "".join(f"{p},,\n" for p in [*files, f"{di}/RECORD"])
+    with zipfile.ZipFile(name, "w") as z:
+        for p, c in files.items():
+            z.writestr(p, c)
+make("toysmoke", "1.0+gb10.cu134.20261011", "1.0+gb10.cu134.20261011")
+make("toydrift", "1.0+gb10.cu134.20261011", "1.0+gb10.cu134.20261010")
+make("toyold", "1.0+gb10.cu134.tuning.62", "1.0+gb10.cu134.tuning.62")
+make("toyabi", "1.0+gb10.cu134.20261011", "1.0+gb10.cu134.20261011", tag="cp27-cp27mu-manylinux1_x86_64")
+make("toymeta", "1.0+gb10.cu134.20261011", "1.0+gb10.cu134.20261011", metaver="1.0+gb10.cu134.20261010")
+PY
+mkdir "${toy}/none"
+smoke="${pre}; export GPU_TUNED_SMOKE_FIND_LINKS='${toy}/none'"
+check "smoke: a clean wheel installs, loads, and reports one matching dist" 0 "-" "OK: gpu_tuned_smoke_wheel: toysmoke-1.0.* installs and loads cleanly" \
+  "${smoke}; gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke"
+check "smoke: a module whose __version__ differs from the file name is refused" 1 "__version__ is '1.0\\+gb10.cu134.20261010'" "-" \
+  "${smoke}; gpu_tuned_smoke_wheel '${toy}/toydrift-1.0+gb10.cu134.20261011-py3-none-any.whl' toydrift toydrift"
+check "smoke: installed metadata that disagrees with the file name is refused" 1 "installed toymeta versions are '1.0\\+gb10.cu134.20261010'" "-" \
+  "${smoke}; gpu_tuned_smoke_wheel '${toy}/toymeta-1.0+gb10.cu134.20261011-py3-none-any.whl' toymeta toymeta"
+check "smoke: the retired counter label is refused before any install" 1 "is not <variant>" "-" \
+  "${smoke}; gpu_tuned_smoke_wheel '${toy}/toyold-1.0+gb10.cu134.tuning.62-py3-none-any.whl' toyold toyold"
+check "smoke: skipping the label check is printed as SKIP" 0 "-" "SKIP: gpu_tuned_smoke_wheel: version label check" \
+  "${smoke}; GPU_TUNED_SMOKE_SKIP_LABEL=1 gpu_tuned_smoke_wheel '${toy}/toyold-1.0+gb10.cu134.tuning.62-py3-none-any.whl' toyold toyold"
+check "smoke: a wheel built for another python is refused up front" 1 "is built for cp27" "-" \
+  "${smoke}; gpu_tuned_smoke_wheel '${toy}/toyabi-1.0+gb10.cu134.20261011-cp27-cp27mu-manylinux1_x86_64.whl' toyabi toyabi"
+check "smoke: a stamp library that is not in the wheel is refused" 1 "stamp library libnope.so not found" "-" \
+  "${smoke}; gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke some_section libnope.so"
+check "smoke: a missing wheel and missing arguments are refused" 1 "usage" "-" "${pre}; gpu_tuned_smoke_wheel"
+check "smoke: the throwaway venv is removed on success" 0 "-" "^OK$" \
+  "${smoke}; mkdir '${toy}/tmp'; TMPDIR='${toy}/tmp' gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke >/dev/null && [ -z \"\$(ls -A '${toy}/tmp')\" ] && echo OK"
+rm -rf "${toy}"
 check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \
   "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r tag title notes 'torch-2.15.0-cp314-cp314-linux_aarch64.whl#w' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"
 check "publish_release: a good wheel label reaches gh, label suffix ignored" 0 "-" "OK: published" \
