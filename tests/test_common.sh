@@ -126,6 +126,59 @@ check "embed_build_info: re-stamping replaces the previous deps, not appends" 0 
   "deps second, built " \
   "${pre}; ${stamp}; GPU_TUNED_BUILD_INFO_DEPS=first gpu_tuned_embed_build_info \"\$T\" gb10 pkg 1.0 HW; GPU_TUNED_BUILD_INFO_DEPS=second gpu_tuned_embed_build_info \"\$T\" gb10 pkg 1.0 HW; S=\"\$(${read_stamp})\"; echo \"\$S\"; ! grep -q first <<< \"\$S\""
 
+# --- build-info stamp: fork + upstream commits ---
+# Fixture: bare "upstream" with c1 (tag v1.0), c2, c3; a fork on top of c3 with
+# two commits. A tuning-* tag sits ON the upstream base (c3), so it would be
+# the "nearest" tag if it were not excluded.
+prov="$(mktemp -d)"
+(
+    set -e; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+    git init -q --bare -b main "${prov}/up.git"
+    git init -q -b main "${prov}/seed"; cd "${prov}/seed"
+    echo 1 > f; git add f; git commit -qm c1; git tag v1.0
+    echo 2 > f; git commit -qam c2; echo 3 > f; git commit -qam c3
+    git tag tuning-9                       # on the upstream base itself
+    git remote add o "${prov}/up.git"; git push -q o main --tags
+    git init -q -b tuned "${prov}/fork"; cd "${prov}/fork"
+    git remote add origin git@github.com:zbrad/thing.git
+    git remote add upstream "${prov}/up.git"; git fetch -q upstream --tags
+    git reset -q --hard upstream/main
+    echo a > g; git add g; git commit -qm f1; echo b > g; git commit -qam f2
+) >/dev/null 2>&1
+fork_sha="$(git -C "${prov}/fork" rev-parse HEAD)"
+base_sha="$(git -C "${prov}/fork" rev-parse upstream/main)"
+inrepo="cd '${prov}/fork'"
+check "provenance: fork sha is the full 40-char HEAD" 0 "-" "fork https://github\\.com/zbrad/thing sha ${fork_sha}[ ,]" \
+  "${pre}; ${inrepo}; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_git_provenance"
+check "provenance: origin ssh remote is stamped as a public https url" 0 "-" "fork https://github\\.com/zbrad/thing sha" \
+  "${pre}; ${inrepo}; gpu_tuned_git_provenance"
+check "provenance: upstream base is the merge-base (full sha)" 0 "-" "base ${base_sha} nearest" \
+  "${pre}; ${inrepo}; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_git_provenance"
+check "provenance: nearest upstream tag + distance; our tuning-* tag is excluded" 0 "-" "nearest v1\\.0\\+2$" \
+  "${pre}; ${inrepo}; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_git_provenance"
+check "provenance: an undeclared upstream ref is marked, not guessed" 0 "-" "upstream .* ref undeclared$" \
+  "${pre}; ${inrepo}; unset GPU_TUNED_UPSTREAM_REF; gpu_tuned_git_provenance"
+check "provenance: upstream/HEAD is used when git has one" 0 "-" "ref upstream/main base ${base_sha}" \
+  "${pre}; ${inrepo}; git remote set-head upstream main >/dev/null; unset GPU_TUNED_UPSTREAM_REF; gpu_tuned_git_provenance; git symbolic-ref -q --delete refs/remotes/upstream/HEAD"
+check "provenance: an unresolvable ref says base unknown and exits 0 quietly" 0 "-" "ref upstream/nope base unknown$" \
+  "${pre}; ${inrepo}; GPU_TUNED_UPSTREAM_REF=upstream/nope gpu_tuned_git_provenance"
+check "provenance: no upstream remote stamps 'upstream none'" 0 "-" "upstream none$" \
+  "${pre}; cd '${prov}'; git init -q -b m nofork; cd nofork; git remote add origin https://tok:secret@github.com/o/r.git; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; out=\"\$(gpu_tuned_git_provenance)\"; echo \"\$out\"; ! grep -q secret <<< \"\$out\""
+check "provenance: a tuning-* tag already on HEAD is picked up" 0 "-" "sha ${fork_sha} tag tuning-20261010," \
+  "${pre}; ${inrepo}; git tag tuning-20261010; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_git_provenance; git tag -d tuning-20261010 >/dev/null"
+check "provenance: GPU_TUNED_BUILD_INFO_TAG is stamped before any tag exists" 0 "-" "sha ${fork_sha} tag tuning-20261011\\.1," \
+  "${pre}; ${inrepo}; GPU_TUNED_BUILD_INFO_TAG=tuning-20261011.1 GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_git_provenance"
+check "provenance: a tracked-file change is marked dirty" 0 "-" "sha ${fork_sha} dirty," \
+  "${pre}; ${inrepo}; echo x >> g; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_git_provenance; git checkout -q g"
+check "provenance: outside a git repo it is a marker, exit 0, silent" 0 "-" "^fork sha unknown, upstream unknown$" \
+  "${pre}; cd /; gpu_tuned_git_provenance"
+check "public_repo_url: scp-style, org alias, https token, ssh://" 0 "-" "^OK$" \
+  "${pre}; [ \"\$(gpu_tuned_public_repo_url git@github.com:a/b.git)\" = https://github.com/a/b ] && [ \"\$(gpu_tuned_public_repo_url org-16943930@github.com:facebookresearch/faiss.git)\" = https://github.com/facebookresearch/faiss ] && [ \"\$(gpu_tuned_public_repo_url https://u:tok@github.com/a/b.git)\" = https://github.com/a/b ] && [ \"\$(gpu_tuned_public_repo_url ssh://git@github.com/a/b)\" = https://github.com/a/b ] && echo OK"
+check "embed_build_info: stamp carries fork+upstream hashes ahead of ', commit '" 0 "-" \
+  "fork https://github\\.com/zbrad/thing sha ${fork_sha}, upstream .* base ${base_sha} nearest v1\\.0\\+2, commit [0-9a-f]+, built " \
+  "${pre}; ${stamp}; ${inrepo}; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_embed_build_info \"\$T\" gb10 pkg 1.0 HW; ${read_stamp}"
+rm -rf "${prov}"
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: cuda tag then variant under cpp/build" 0 "-" "^/r/cpp/build/cu133/gb10$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"

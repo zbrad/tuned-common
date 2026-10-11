@@ -399,6 +399,87 @@ gpu_tuned_load_repo_env() {
     fi
 }
 
+# gpu_tuned_public_repo_url <remote-url> — the public https form of a git
+# remote, safe to stamp into a published binary: scp-style and ssh:// remotes
+# become https://<host>/<path>, any userinfo (including an `org-123@` SSH host
+# alias or an embedded token) is dropped, and a trailing .git is removed.
+gpu_tuned_public_repo_url() {
+    printf '%s' "${1:-}" | sed -E \
+        's#\.git$##; s#^ssh://[^@/]*@([^/:]+)(:[0-9]+)?/#https://\1/#; s#^[^@/:]+@([^:/]+):#https://\1/#; s#^(https?://)[^/@]*@#\1#'
+}
+
+# gpu_tuned_git_provenance [fork-url] — one line naming the exact fork and
+# upstream commits the current checkout was built from, for the build-info
+# stamp. Run from inside the repo (like the stamp itself). Always returns 0 and
+# never prints to stderr: every git call is guarded, so a non-fork, a shallow
+# or temp-dir wheel build, or a missing upstream ref yields an explicit marker
+# instead of tripping the ERR trap.
+#
+#   fork <url> sha <40-hex>[ dirty][ tag <tuning-tag>], upstream <url> ref <ref> base <40-hex> nearest <tag>+<N>
+#
+#  - fork sha is the full HEAD hash; " dirty" is added if tracked files differ
+#    from HEAD (the stamp would otherwise misidentify the build).
+#  - fork tag is GPU_TUNED_BUILD_INFO_TAG if the caller supplies it, else a
+#    tuning-* tag already pointing at HEAD. A release script usually tags only
+#    after the build, so the caller (or the release-tag helper) must pass it.
+#  - upstream ref is GPU_TUNED_UPSTREAM_REF (declare it per repo, e.g. in
+#    tuned/repo.env: upstream/master) or, failing that, upstream/HEAD if git
+#    has one. It is NOT guessed from main/master/develop: several upstreams
+#    release from a branch that main does not contain.
+#  - upstream base is merge-base(HEAD, ref): the upstream commit our tuned work
+#    sits on. nearest is the closest upstream tag at or before it and the
+#    distance from it; our own tuning-* tags are excluded.
+#  - Never fetches. upstream/* is as fresh as the last fetch; build-time
+#    freshness is gpu_tuned_check_main_current's job, not the stamp's.
+#  - Non-forks stamp "upstream none"; an undeclared ref stamps
+#    "ref undeclared"; an unresolvable one "base unknown".
+gpu_tuned_git_provenance() {
+    local fork_url="${1:-}" sha dirty="" tag up_url up_ref base nearest dist
+    if ! sha="$(git rev-parse HEAD 2>/dev/null)"; then
+        printf 'fork sha unknown, upstream unknown'
+        return 0
+    fi
+    if [ -z "${fork_url}" ]; then
+        fork_url="$(git remote get-url origin 2>/dev/null || true)"
+    fi
+    fork_url="$(gpu_tuned_public_repo_url "${fork_url}")"
+    if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null || true)" ]; then
+        dirty=" dirty"
+    fi
+    tag="${GPU_TUNED_BUILD_INFO_TAG:-}"
+    if [ -z "${tag}" ]; then
+        tag="$(git describe --exact-match --tags --match 'tuning-*' HEAD 2>/dev/null || true)"
+    fi
+    printf 'fork %s sha %s%s' "${fork_url:-unknown}" "${sha}" "${dirty}"
+    [ -z "${tag}" ] || printf ' tag %s' "${tag}"
+
+    if ! up_url="$(git remote get-url upstream 2>/dev/null)"; then
+        printf ', upstream none'
+        return 0
+    fi
+    up_url="$(gpu_tuned_public_repo_url "${up_url}")"
+    up_ref="${GPU_TUNED_UPSTREAM_REF:-}"
+    if [ -z "${up_ref}" ]; then
+        up_ref="$(git symbolic-ref -q --short refs/remotes/upstream/HEAD 2>/dev/null || true)"
+    fi
+    if [ -z "${up_ref}" ]; then
+        printf ', upstream %s ref undeclared' "${up_url}"
+        return 0
+    fi
+    if ! base="$(git merge-base HEAD "${up_ref}" 2>/dev/null)"; then
+        printf ', upstream %s ref %s base unknown' "${up_url}" "${up_ref}"
+        return 0
+    fi
+    nearest="$(git describe --tags --abbrev=0 --exclude 'tuning-*' "${base}" 2>/dev/null || true)"
+    if [ -n "${nearest}" ]; then
+        dist="$(git rev-list --count "refs/tags/${nearest}..${base}" 2>/dev/null || true)"
+        nearest="${nearest}+${dist:-?}"
+    else
+        nearest="none"
+    fi
+    printf ', upstream %s ref %s base %s nearest %s' "${up_url}" "${up_ref}" "${base}" "${nearest}"
+}
+
 # gpu_tuned_embed_build_info <so-or-bin-path> <variant> <package> <version>
 # [hw-label] [repo-url] [section-name] — embeds a greppable build-info
 # string into a custom ELF section on the given file, readable later via
@@ -433,9 +514,15 @@ gpu_tuned_load_repo_env() {
 # v26.12-gb10-cu134-g9d97792e"). Unset, the stamp is unchanged. An env var
 # rather than an 8th argument so the per-repo embed_build_info wrappers need
 # no change.
+#
+# The stamp also records the fork and upstream commits (see
+# gpu_tuned_git_provenance), placed before ", commit <short>" so anything
+# already parsing that field is unaffected. Env inputs, all optional:
+# GPU_TUNED_UPSTREAM_REF (the upstream ref to base on) and
+# GPU_TUNED_BUILD_INFO_TAG (the tuning tag this build will be released as).
 gpu_tuned_embed_build_info() {
     local target="$1" variant="$2" package="$3" version="$4" hw_label="${5:-${2}}" repo_url="${6:-}" section_override="${7:-}"
-    local section tmp git_sha
+    local section tmp git_sha provenance
     if [ -n "${section_override}" ]; then
         section="${section_override}"
         [[ "${section}" == .* ]] || section=".${section}"
@@ -443,10 +530,12 @@ gpu_tuned_embed_build_info() {
         section=".$(printf '%s' "${package}" | tr -c 'A-Za-z0-9' '_')_build_info"
     fi
     git_sha="$(git rev-parse --short HEAD 2>/dev/null)" || git_sha="unknown"
+    provenance="$(gpu_tuned_git_provenance "${repo_url}")"
     tmp="$(mktemp)"
     {
         printf '%s-%s build: %s v%s (%s)' "${package}" "${variant}" "${package}" "${version}" "${hw_label}"
         [ -n "${repo_url}" ] && printf ', %s' "${repo_url}"
+        printf ', %s' "${provenance}"
         printf ', commit %s' "${git_sha}"
         [ -n "${GPU_TUNED_BUILD_INFO_DEPS:-}" ] && printf ', deps %s' "${GPU_TUNED_BUILD_INFO_DEPS//$'\n'/ }"
         printf ', built %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
