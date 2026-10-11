@@ -1,0 +1,851 @@
+{
+  "schema": "tuned-common/upstream-vs-tuned-versions/1",
+  "as_of": "2026-10-11",
+  "purpose": "Reference snapshot of how each tracked upstream versions and tags its releases, side by side with what our tuned release would be named under the date scheme. Kept for form and structure: copy the shape, regenerate the values.",
+  "status": "SNAPSHOT. Every tuned.expected block is SIMULATED (simulated=true): nothing here was published. The upstream facts were read on the as_of date and go stale quickly.",
+  "scheme": {
+    "wheel_label": "<public version>+<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]",
+    "wheel_example": "2.15.0+gb10.cu134.20260922",
+    "native_tag": "v0.<YYYYMMDD>.<seq>-<variant>-cu<cuda>  (seq 0 is written in full on tags, omitted on wheel labels)",
+    "label_date_source": "committer date (UTC) of the tuned HEAD commit, so rebuilding a commit reproduces its label; most repos' HEAD is from 2026-09-22",
+    "reference": "docs/VERSIONING.md"
+  },
+  "provenance": {
+    "verified": "read from GitHub API, git ls-remote and git show at the base commit on the as_of date (see method)",
+    "inferred": [
+      "base.nearest_tag_* where nearest_tag_reliability is 'unverified'",
+      "tag_lineage derived from the GitHub compare ahead/behind counts against the default branch (behind>0 means the newest stable tag is not an ancestor of the default branch)"
+    ],
+    "simulated": "all tuned.expected fields",
+    "unpublished_assumptions": [
+      "wheel public versions are taken from the last published build; the next build recomputes them",
+      "llama.cpp expected tag would not match install.sh's current regex ^v[0-9]+-<variant>-cu[0-9]+$"
+    ]
+  },
+  "method": [
+    "gh api repos/<upstream>/releases?per_page=100   (newest releases, prerelease flags)",
+    "gh api repos/<upstream>/compare/<newest-stable-tag>...<default-branch>   (status, ahead_by, behind_by)",
+    "git -C <repo> ls-remote --tags upstream   (all upstream tags; filtered with the stable_tag_regexes)",
+    "git -C <repo> merge-base HEAD <tracked_ref>   (base sha); git -C <repo> show <base>:<file>   (declared version)",
+    "GPU_TUNED_UPSTREAM_REF=<ref> gpu_tuned_git_provenance   (stamp: base sha and nearest tag)",
+    "gh release list --repo <fork> --limit 1   (latest published tuned tag)",
+    "gpu_tuned_local_version_dated gb10 <cuda> <YYYYMMDD> 0   (expected wheel label)"
+  ],
+  "known_corrections": [
+    "2026-10-11: raft's newest upstream tag is v26.10.00, not the v26.08.00 GitHub release an earlier table showed",
+    "2026-10-11: llama.cpp's source at our base declares 0.5.0; 'nearest tag' (v0.4.1+227) is a tag-topology artifact"
+  ],
+  "repos": [
+    {
+      "repo": "llama.cpp",
+      "kind": "native",
+      "upstream": {
+        "slug": "ggml-org/llama.cpp",
+        "default_branch": "master",
+        "tracked_ref": "upstream/master",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "^b[0-9]+$"
+          ],
+          "examples": [
+            "v0.6.0",
+            "b11552"
+          ],
+          "notes": "7911 tags, nearly all CI build tags b<N> (N = commit count); 99 of the newest 100 GitHub releases are flagged pre-release, the stable line is the new v0.x tags",
+          "newest_stable_tag": "v0.6.0",
+          "tag_lineage": "default-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v0.6.0",
+          "date": "2026-10-05",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v0.6.0",
+            "date": "2026-10-05",
+            "prerelease": false
+          },
+          {
+            "tag": "b11552",
+            "date": "2026-10-10",
+            "prerelease": true
+          },
+          {
+            "tag": "b11551",
+            "date": "2026-10-10",
+            "prerelease": true
+          }
+        ],
+        "version_source": {
+          "kind": "file+ci",
+          "where": "CMakeLists.txt LLAMA_VERSION_{MAJOR,MINOR,PATCH} (0.5.0 at our base) plus LLAMA_BUILD_NUMBER = commit count"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "ahead",
+          "ahead": 123,
+          "behind": 0
+        }
+      },
+      "base": {
+        "sha12": "4b1a27fa0eb8",
+        "date": "2026-09-25",
+        "declared_version": "0.5.0",
+        "declared_version_source": "CMakeLists.txt LLAMA_VERSION_* at base; build number 11191",
+        "nearest_tag_raw": "b11118",
+        "nearest_tag_distance": 73,
+        "nearest_tag_reliability": "reliable"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/llama.cpp",
+        "latest_published": {
+          "tag": "v10931-gb10-cu133",
+          "date": "2026-09-10"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v0.20261009.0-gb10-cu133",
+          "label_date": "20261009",
+          "title_upstream_version": "llama.cpp build 11242 (base 11191, upstream newest b11552)"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "behind",
+        "detail": "base is build 11191; upstream newest build tag b11552 (361 builds ahead); upstream stable line v0.6.0 vs declared 0.5.0"
+      }
+    },
+    {
+      "repo": "ollama",
+      "kind": "native",
+      "upstream": {
+        "slug": "ollama/ollama",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+          ],
+          "examples": [
+            "v0.40.3",
+            "v0.40.3-rc0"
+          ],
+          "notes": "691 tags; every release has an -rcN tag first (excluded from the stable pattern)",
+          "newest_stable_tag": "v0.40.3",
+          "tag_lineage": "default-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v0.40.3",
+          "date": "2026-10-11",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v0.40.3",
+            "date": "2026-10-11",
+            "prerelease": false
+          },
+          {
+            "tag": "v0.40.2",
+            "date": "2026-10-08",
+            "prerelease": false
+          },
+          {
+            "tag": "v0.40.1",
+            "date": "2026-10-07",
+            "prerelease": false
+          }
+        ],
+        "version_source": {
+          "kind": "tag-derived-build-flag",
+          "where": "version/version.go defaults to 0.0.0; scripts/env.sh and push_docker.sh pass -X version.Version=$VERSION at build time"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "identical",
+          "ahead": 0,
+          "behind": 0
+        }
+      },
+      "base": {
+        "sha12": "5a173edb63db",
+        "date": "2026-08-08",
+        "declared_version": null,
+        "declared_version_source": "not in source (injected from the tag at build time)",
+        "nearest_tag_raw": "v0.31.1",
+        "nearest_tag_distance": 111,
+        "nearest_tag_reliability": "unverified"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/ollama",
+        "latest_published": {
+          "tag": "v5623-arm64",
+          "date": "2026-08-10"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v0.20260922.0-arm64",
+          "label_date": "20260922",
+          "title_upstream_version": "ollama build number (axis is GOARCH, not CUDA; shape undecided)"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "behind",
+        "detail": "base is v0.31.1 + 111 commits (2026-08-08); upstream newest v0.40.3; about nine minor releases behind"
+      }
+    },
+    {
+      "repo": "vllm",
+      "kind": "wheel",
+      "upstream": {
+        "slug": "vllm-project/vllm",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+          ],
+          "examples": [
+            "v0.31.0",
+            "v0.31.0rc5"
+          ],
+          "notes": "207 tags; rc tags precede each release; also proto-v* legacy tags that git describe picks as 'nearest'",
+          "newest_stable_tag": "v0.31.0",
+          "tag_lineage": "release-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v0.31.0",
+          "date": "2026-10-05",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v0.31.0",
+            "date": "2026-10-05",
+            "prerelease": false
+          },
+          {
+            "tag": "v0.30.0",
+            "date": "2026-09-22",
+            "prerelease": false
+          },
+          {
+            "tag": "v0.29.0",
+            "date": "2026-09-09",
+            "prerelease": false
+          }
+        ],
+        "version_source": {
+          "kind": "scm",
+          "where": "setuptools_scm (setup.py imports get_version; vllm/_version.py is generated); the version is derived from the nearest tag"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "diverged",
+          "ahead": 740,
+          "behind": 27
+        }
+      },
+      "base": {
+        "sha12": "71fc70d3ae1d",
+        "date": "2026-09-18",
+        "declared_version": null,
+        "declared_version_source": "generated from tags at build time; our last build reported 0.29.1rc1.dev441",
+        "nearest_tag_raw": "proto-v0.3.0",
+        "nearest_tag_distance": null,
+        "nearest_tag_reliability": "noisy"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/vllm",
+        "latest_published": {
+          "tag": "v0.29.1rc1.dev441+gd9d8249e9.gb10.cu134.tuning.62",
+          "date": "2026-09-19"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v0.29.1rc1.dev<N>+g1a003da94.gb10.cu134.20260922",
+          "label": "gb10.cu134.20260922",
+          "label_date": "20260922",
+          "public_version": "0.29.1rc1.dev<N> (N and the g<sha> prefix come from the build)"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "behind",
+        "detail": "builds as 0.29.1rc1; upstream newest v0.31.0 (about two minors ahead)"
+      }
+    },
+    {
+      "repo": "pytorch",
+      "kind": "wheel",
+      "upstream": {
+        "slug": "pytorch/pytorch",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+          ],
+          "examples": [
+            "v2.14.1",
+            "v2.14.0"
+          ],
+          "notes": "12313 tags, almost all viable/strict/<n> CI promotion markers; release tags are the only v* ones",
+          "newest_stable_tag": "v2.14.1",
+          "tag_lineage": "release-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v2.14.1",
+          "date": "2026-09-30",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v2.14.1",
+            "date": "2026-09-30",
+            "prerelease": false
+          },
+          {
+            "tag": "v2.14.0",
+            "date": "2026-09-02",
+            "prerelease": false
+          },
+          {
+            "tag": "v2.13.0",
+            "date": "2026-07-08",
+            "prerelease": false
+          }
+        ],
+        "version_source": {
+          "kind": "file",
+          "where": "version.txt (2.15.0a0 at our base) plus tags on release branches"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "diverged",
+          "ahead": 3513,
+          "behind": 45
+        }
+      },
+      "base": {
+        "sha12": "5c6918c45ade",
+        "date": "2026-09-18",
+        "declared_version": "2.15.0a0",
+        "declared_version_source": "version.txt at base",
+        "nearest_tag_raw": "trunk/5c6918c4",
+        "nearest_tag_distance": 0,
+        "nearest_tag_reliability": "noisy"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/pytorch",
+        "latest_published": {
+          "tag": "v2.15.0+gb10.cu134.tuning-v34",
+          "date": "2026-09-18"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v2.15.0+gb10.cu134.20260922",
+          "label": "gb10.cu134.20260922",
+          "label_date": "20260922",
+          "public_version": "2.15.0"
+        },
+        "blockers": [
+          "dirty tracked tree: publish gate would refuse (4 tracked files in tuned/)"
+        ]
+      },
+      "comparison": {
+        "relation": "ahead",
+        "detail": "source declares 2.15.0a0 (main), newer than the newest release v2.14.1"
+      }
+    },
+    {
+      "repo": "flashinfer",
+      "kind": "wheel",
+      "upstream": {
+        "slug": "flashinfer-ai/flashinfer",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+          ],
+          "examples": [
+            "v0.7.1",
+            "v0.7.2rc2"
+          ],
+          "notes": "408 tags; rc tags and nightly-v* tags; newest tags (v0.7.2rc2) are ahead of the newest release (v0.7.1)",
+          "newest_stable_tag": "v0.7.1",
+          "tag_lineage": "release-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v0.7.1",
+          "date": "2026-10-09",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v0.7.1",
+            "date": "2026-10-09",
+            "prerelease": false
+          },
+          {
+            "tag": "v0.7.1rc5",
+            "date": "2026-10-07",
+            "prerelease": true
+          },
+          {
+            "tag": "v0.7.1rc4",
+            "date": "2026-10-06",
+            "prerelease": true
+          }
+        ],
+        "version_source": {
+          "kind": "file",
+          "where": "version.txt (0.7.0 at our base); tags on release-v* branches"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "diverged",
+          "ahead": 328,
+          "behind": 49
+        }
+      },
+      "base": {
+        "sha12": "012542c8523b",
+        "date": "2026-09-18",
+        "declared_version": "0.7.0",
+        "declared_version_source": "version.txt at base",
+        "nearest_tag_raw": "nightly-v0.6.18-20260819",
+        "nearest_tag_distance": 330,
+        "nearest_tag_reliability": "noisy"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/flashinfer",
+        "latest_published": {
+          "tag": "v0.7.0+gb10.cu134.tuning.35",
+          "date": "2026-09-19"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v0.7.0+gb10.cu134.20260922",
+          "label": "gb10.cu134.20260922",
+          "label_date": "20260922",
+          "public_version": "0.7.0"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "behind",
+        "detail": "declares 0.7.0; upstream newest v0.7.1 (one patch)"
+      }
+    },
+    {
+      "repo": "flash-attention",
+      "kind": "wheel",
+      "upstream": {
+        "slug": "Dao-AILab/flash-attention",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]+(\\.[0-9]+)+(\\.post[0-9]+)?$"
+          ],
+          "examples": [
+            "v2.8.3.post1",
+            "fa4-v4.0.0.beta34"
+          ],
+          "notes": "131 tags in two lines: FA2 stable (v2.x) and FA4 betas (fa4-v4.0.0.betaNN, all pre-release, weekly)",
+          "newest_stable_tag": "v2.8.3.post1",
+          "tag_lineage": "release-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v2.8.3.post1",
+          "date": "2026-06-10",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v2.8.3.post1",
+            "date": "2026-06-10",
+            "prerelease": false
+          },
+          {
+            "tag": "v2.8.3",
+            "date": "2025-08-14",
+            "prerelease": false
+          },
+          {
+            "tag": "v2.8.2",
+            "date": "2025-07-24",
+            "prerelease": false
+          }
+        ],
+        "version_source": {
+          "kind": "file",
+          "where": "__version__ in flash_attn/__init__.py (2.8.4 at our base); tags on release branches"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "diverged",
+          "ahead": 608,
+          "behind": 2
+        }
+      },
+      "base": {
+        "sha12": "1bda8f9290cd",
+        "date": "2026-09-16",
+        "declared_version": "2.8.4",
+        "declared_version_source": "flash_attn/__init__.py at base",
+        "nearest_tag_raw": "fa4-v4.0.0.beta31",
+        "nearest_tag_distance": 4,
+        "nearest_tag_reliability": "noisy"
+      },
+      "tuned": {
+        "fork_slug": "zbrad-llc/flash-attention",
+        "latest_published": {
+          "tag": "v2.8.4+gb10.cu134.tuning.27",
+          "date": "2026-09-19"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v2.8.4+gb10.cu134.20260922",
+          "label": "gb10.cu134.20260922",
+          "label_date": "20260922",
+          "public_version": "2.8.4"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "ahead",
+        "detail": "source declares 2.8.4, newer than the newest stable release v2.8.3.post1"
+      }
+    },
+    {
+      "repo": "flash-attention-vllm",
+      "kind": "wheel",
+      "upstream": {
+        "slug": "vllm-project/flash-attention",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v2\\.[0-9.]+(\\.post[0-9]+)?$"
+          ],
+          "examples": [
+            "v2.6.2",
+            "v2.5.9.post1"
+          ],
+          "notes": "8 tags, all flagged pre-release, last in 2024-09; the repo itself is active (pushed 2026-10)",
+          "newest_stable_tag": "v2.6.2",
+          "tag_lineage": "release-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v2.6.2",
+          "date": "2024-09-05",
+          "prerelease": true
+        },
+        "last3_releases": [
+          {
+            "tag": "v2.6.2",
+            "date": "2024-09-05",
+            "prerelease": true
+          },
+          {
+            "tag": "v2.6.1",
+            "date": "2024-08-01",
+            "prerelease": true
+          },
+          {
+            "tag": "v2.6.0",
+            "date": "2024-07-29",
+            "prerelease": true
+          }
+        ],
+        "version_source": {
+          "kind": "file",
+          "where": "__version__ in vllm_flash_attn/__init__.py (2.7.2.post1 at our base); upstream tags stopped at v2.6.2"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "diverged",
+          "ahead": 1005,
+          "behind": 59
+        }
+      },
+      "base": {
+        "sha12": "9cd61de38763",
+        "date": "2026-09-08",
+        "declared_version": "2.7.2.post1",
+        "declared_version_source": "vllm_flash_attn/__init__.py at base",
+        "nearest_tag_raw": null,
+        "nearest_tag_distance": null,
+        "nearest_tag_reliability": "none"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/flash-attention-vllm",
+        "latest_published": {
+          "tag": "v2.7.2.post1+gb10.cu134.tuning.37",
+          "date": "2026-09-19"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v2.7.2.post1+gb10.cu134.20260922",
+          "label": "gb10.cu134.20260922",
+          "label_date": "20260922",
+          "public_version": "2.7.2.post1"
+        },
+        "blockers": [
+          "dirty tracked tree: publish gate would refuse (submodule third_party/aiter at a different commit)",
+          "torch floor mismatch todo: vllm-flash-attn requires torch>=2.15.0 but dev torch is installed"
+        ]
+      },
+      "comparison": {
+        "relation": "ahead",
+        "detail": "source declares 2.7.2.post1; newest upstream tag v2.6.2 is two years stale"
+      }
+    },
+    {
+      "repo": "cuvs",
+      "kind": "native",
+      "upstream": {
+        "slug": "rapidsai/cuvs",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}$"
+          ],
+          "examples": [
+            "v26.10.00",
+            "v26.12.00a"
+          ],
+          "notes": "37 tags; calendar versions vYY.MM.NN; an 'a' marker tag (v26.12.00a) starts each next cycle on main",
+          "newest_stable_tag": "v26.10.00",
+          "tag_lineage": "release-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v26.10.00",
+          "date": "2026-10-08",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v26.10.00",
+            "date": "2026-10-08",
+            "prerelease": false
+          },
+          {
+            "tag": "v26.08.01",
+            "date": "2026-08-06",
+            "prerelease": false
+          },
+          {
+            "tag": "v26.08.00",
+            "date": "2026-08-05",
+            "prerelease": false
+          }
+        ],
+        "version_source": {
+          "kind": "file",
+          "where": "VERSION file (26.12.00 at our base); release tags cut from release branches"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "diverged",
+          "ahead": 89,
+          "behind": 1
+        }
+      },
+      "base": {
+        "sha12": "411d4129d52b",
+        "date": "2026-09-21",
+        "declared_version": "26.12.00",
+        "declared_version_source": "VERSION at base",
+        "nearest_tag_raw": "v26.12.00a",
+        "nearest_tag_distance": 51,
+        "nearest_tag_reliability": "reliable"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/cuvs",
+        "latest_published": {
+          "tag": "v26.12-gb10-cu133-g1c38fcf18",
+          "date": "2026-09-22"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v0.20260922.0-gb10-cu133",
+          "label_date": "20260922",
+          "title_upstream_version": "cuvs-tuned 26.12"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "ahead",
+        "detail": "VERSION says 26.12.00 (main alpha); newest release v26.10.00"
+      }
+    },
+    {
+      "repo": "raft",
+      "kind": "native",
+      "upstream": {
+        "slug": "rapidsai/raft",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v[0-9]{2}\\.[0-9]{2}\\.[0-9]{2}$"
+          ],
+          "examples": [
+            "v26.10.00",
+            "v26.12.00a"
+          ],
+          "notes": "73 tags; calendar versions; tag v26.10.00 exists with NO GitHub release (newest release is v26.08.00, 2026-08-05)",
+          "newest_stable_tag": "v26.10.00",
+          "tag_lineage": "release-branch"
+        },
+        "release_source": "tags-ahead-of-github-releases",
+        "newest_github_release": {
+          "tag": "v26.08.00",
+          "date": "2026-08-05",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v26.08.00",
+            "date": "2026-08-05",
+            "prerelease": false
+          },
+          {
+            "tag": "v26.06.00",
+            "date": "2026-06-03",
+            "prerelease": false
+          },
+          {
+            "tag": "v26.04.00",
+            "date": "2026-04-08",
+            "prerelease": false
+          }
+        ],
+        "version_source": {
+          "kind": "file",
+          "where": "VERSION file (26.12.00 at our base); release tags cut from release branches"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "diverged",
+          "ahead": 26,
+          "behind": 1
+        }
+      },
+      "base": {
+        "sha12": "f197acbc1da7",
+        "date": "2026-09-17",
+        "declared_version": "26.12.00",
+        "declared_version_source": "VERSION at base",
+        "nearest_tag_raw": "v26.12.00a",
+        "nearest_tag_distance": 19,
+        "nearest_tag_reliability": "reliable"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/raft",
+        "latest_published": {
+          "tag": "v26.12-gb10-cu134-ga57c8910",
+          "date": "2026-09-22"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v0.20260922.0-gb10-cu134",
+          "label_date": "20260922",
+          "title_upstream_version": "raft-tuned 26.12"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "ahead",
+        "detail": "VERSION says 26.12.00 (main alpha); newest upstream TAG v26.10.00 (newest GitHub release v26.08.00)"
+      }
+    },
+    {
+      "repo": "faiss",
+      "kind": "native",
+      "upstream": {
+        "slug": "facebookresearch/faiss",
+        "default_branch": "main",
+        "tracked_ref": "upstream/main",
+        "tag_scheme": {
+          "stable_tag_regexes": [
+            "^v1\\.[0-9]+\\.[0-9]+$"
+          ],
+          "examples": [
+            "v1.15.1",
+            "v1.15.0"
+          ],
+          "notes": "33 tags; also one legacy date tag (v20180223)",
+          "newest_stable_tag": "v1.15.1",
+          "tag_lineage": "default-branch"
+        },
+        "release_source": "github-releases+tags",
+        "newest_github_release": {
+          "tag": "v1.15.1",
+          "date": "2026-09-16",
+          "prerelease": false
+        },
+        "last3_releases": [
+          {
+            "tag": "v1.15.1",
+            "date": "2026-09-16",
+            "prerelease": false
+          },
+          {
+            "tag": "v1.15.0",
+            "date": "2026-08-03",
+            "prerelease": false
+          },
+          {
+            "tag": "v1.14.3",
+            "date": "2026-06-13",
+            "prerelease": false
+          }
+        ],
+        "version_source": {
+          "kind": "file",
+          "where": "project(faiss VERSION ...) in CMakeLists.txt (1.15.1 at our base); tags on the default branch"
+        },
+        "default_branch_vs_newest_stable_tag": {
+          "status": "ahead",
+          "ahead": 52,
+          "behind": 0
+        }
+      },
+      "base": {
+        "sha12": "b0d9e80288da",
+        "date": "2026-09-18",
+        "declared_version": "1.15.1",
+        "declared_version_source": "CMakeLists.txt project(faiss VERSION) at base",
+        "nearest_tag_raw": "v1.15.1",
+        "nearest_tag_distance": 6,
+        "nearest_tag_reliability": "reliable"
+      },
+      "tuned": {
+        "fork_slug": "zbrad/faiss",
+        "latest_published": {
+          "tag": "v1.14-gb10-cu133",
+          "date": "2026-08-07"
+        },
+        "expected": {
+          "simulated": true,
+          "tag": "v0.20260922.0-gb10-cu133",
+          "label_date": "20260922",
+          "title_upstream_version": "faiss-tuned 1.15.1"
+        },
+        "blockers": []
+      },
+      "comparison": {
+        "relation": "at",
+        "detail": "base is v1.15.1 + 6 commits; the last published tuned tag (v1.14) is stale"
+      }
+    }
+  ]
+}

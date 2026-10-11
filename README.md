@@ -45,6 +45,9 @@ an `ERR` trap so aborts under `set -e` are never silent (opt out: `GPU_TUNED_NO_
 Run `bash tests/test_common.sh` before changing the library.
 `tools/wheel_version_audit.py` audits published wheels against the rule (tests:
 `python3 -m pytest tests/test_wheel_version_audit.py`); latest report: `docs/VERSION_AUDIT_2026-09-18.md`.
+`docs/upstream-vs-tuned-versions.json` is a reference snapshot (as of 2026-10-11) of how each tracked
+upstream tags and versions its releases, beside what our tuned release would be named; its
+`tuned.expected` blocks are simulated. `tests/test_upstream_versions_doc.py` pins its structure.
 
 ## Keeping a vendored copy in sync
 
