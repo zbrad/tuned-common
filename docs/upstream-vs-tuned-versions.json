@@ -5,9 +5,9 @@
   "status": "SNAPSHOT. Every tuned.expected block is SIMULATED (simulated=true): nothing here was published. The upstream facts were read on the as_of date and go stale quickly.",
   "scheme": {
     "wheel_label": "<public version>+<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]",
-    "wheel_example": "2.15.0+gb10.cu134.20260922",
+    "wheel_example": "2.15.0+gb10.cu134.20260923",
     "native_tag": "v0.<YYYYMMDD>.<seq>-<variant>-cu<cuda>  (seq 0 is written in full on tags, omitted on wheel labels)",
-    "label_date_source": "committer date (UTC) of the tuned HEAD commit, so rebuilding a commit reproduces its label; most repos' HEAD is from 2026-09-22",
+    "label_date_source": "committer date (UTC) of the tuned HEAD commit, read with TZ=UTC and git's format-local (gpu_tuned_head_date), so rebuilding a commit reproduces its label; most repos' HEAD is from 2026-09-23 UTC",
     "reference": "docs/VERSIONING.md"
   },
   "provenance": {
@@ -33,7 +33,8 @@
   ],
   "known_corrections": [
     "2026-10-11: raft's newest upstream tag is v26.10.00, not the v26.08.00 GitHub release an earlier table showed",
-    "2026-10-11: llama.cpp's source at our base declares 0.5.0; 'nearest tag' (v0.4.1+227) is a tag-topology artifact"
+    "2026-10-11: llama.cpp's source at our base declares 0.5.0; 'nearest tag' (v0.4.1+227) is a tag-topology artifact",
+    "2026-10-11: label dates were first computed with git's --date=format:, which uses each commit's own timezone; nine repos were a day early (2026-09-22). Recomputed with gpu_tuned_head_date (UTC)."
   ],
   "repos": [
     {
@@ -186,8 +187,8 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v0.20260922.0-arm64",
-          "label_date": "20260922",
+          "tag": "v0.20260923.0-arm64",
+          "label_date": "20260923",
           "title_upstream_version": "ollama build number (axis is GOARCH, not CUDA; shape undecided)"
         },
         "blockers": []
@@ -266,9 +267,9 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v0.29.1rc1.dev<N>+g1a003da94.gb10.cu134.20260922",
-          "label": "gb10.cu134.20260922",
-          "label_date": "20260922",
+          "tag": "v0.29.1rc1.dev<N>+g1a003da94.gb10.cu134.20260923",
+          "label": "gb10.cu134.20260923",
+          "label_date": "20260923",
           "public_version": "0.29.1rc1.dev<N> (N and the g<sha> prefix come from the build)"
         },
         "blockers": []
@@ -347,9 +348,9 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v2.15.0+gb10.cu134.20260922",
-          "label": "gb10.cu134.20260922",
-          "label_date": "20260922",
+          "tag": "v2.15.0+gb10.cu134.20260923",
+          "label": "gb10.cu134.20260923",
+          "label_date": "20260923",
           "public_version": "2.15.0"
         },
         "blockers": [
@@ -430,9 +431,9 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v0.7.0+gb10.cu134.20260922",
-          "label": "gb10.cu134.20260922",
-          "label_date": "20260922",
+          "tag": "v0.7.0+gb10.cu134.20260923",
+          "label": "gb10.cu134.20260923",
+          "label_date": "20260923",
           "public_version": "0.7.0"
         },
         "blockers": []
@@ -511,9 +512,9 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v2.8.4+gb10.cu134.20260922",
-          "label": "gb10.cu134.20260922",
-          "label_date": "20260922",
+          "tag": "v2.8.4+gb10.cu134.20260923",
+          "label": "gb10.cu134.20260923",
+          "label_date": "20260923",
           "public_version": "2.8.4"
         },
         "blockers": []
@@ -592,9 +593,9 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v2.7.2.post1+gb10.cu134.20260922",
-          "label": "gb10.cu134.20260922",
-          "label_date": "20260922",
+          "tag": "v2.7.2.post1+gb10.cu134.20260923",
+          "label": "gb10.cu134.20260923",
+          "label_date": "20260923",
           "public_version": "2.7.2.post1"
         },
         "blockers": [
@@ -676,8 +677,8 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v0.20260922.0-gb10-cu133",
-          "label_date": "20260922",
+          "tag": "v0.20260923.0-gb10-cu133",
+          "label_date": "20260923",
           "title_upstream_version": "cuvs-tuned 26.12"
         },
         "blockers": []
@@ -756,8 +757,8 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v0.20260922.0-gb10-cu134",
-          "label_date": "20260922",
+          "tag": "v0.20260923.0-gb10-cu134",
+          "label_date": "20260923",
           "title_upstream_version": "raft-tuned 26.12"
         },
         "blockers": []
@@ -836,8 +837,8 @@
         },
         "expected": {
           "simulated": true,
-          "tag": "v0.20260922.0-gb10-cu133",
-          "label_date": "20260922",
+          "tag": "v0.20260923.0-gb10-cu133",
+          "label_date": "20260923",
           "title_upstream_version": "faiss-tuned 1.15.1"
         },
         "blockers": []
