@@ -1009,6 +1009,71 @@ gpu_tuned_tuning_label() {
     printf '%s' "${1:-}" | grep -oE 'tuning\.[0-9]+' | head -1 || true
 }
 
+# gpu_tuned_valid_date <YYYYMMDD> -- succeeds only for an 8-digit date that is a
+# real calendar day and does not start with 0 (a leading zero is stripped by
+# PEP 440 normalization, so it would not match its own wheel filename). The date
+# is round-tripped through `date -u -d` and compared, not trusted on exit code.
+gpu_tuned_valid_date() {
+    local d="${1:-}"
+    [[ "${d}" =~ ^[1-9][0-9]{7}$ ]] || return 1
+    [ "$(date -u -d "${d:0:4}-${d:4:2}-${d:6:2}" +%Y%m%d 2>/dev/null || true)" = "${d}" ]
+}
+
+# gpu_tuned_local_version_dated <variant> <cuda-compact> <YYYYMMDD> [<seq>] --
+# prints the date-form PEP 440 local label: <variant>.cu<cuda>.<YYYYMMDD>[.<seq>]
+# e.g. "0.7.0+gb10.cu134.20261010" and, for a second build the same day,
+# "0.7.0+gb10.cu134.20261010.1". Replaces "<variant>.cu<cuda>.tuning.<N>" (user
+# decision 2026-10-11, docs/VERSIONING.md); gpu_tuned_local_version is kept for
+# consumers that have not migrated.
+#
+# <seq> is the build's sequence within its date: 0 (the default) is the first
+# build and is OMITTED from the label; 1, 2, ... are appended. It must be a
+# canonical integer (no leading zeros). A ".0" label is never produced because
+# PEP 440 sorts "<date>.0" above "<date>", which would make it a second spelling
+# of the first build. The native release tag renders the same integer in full
+# (v0.<date>.<seq>, so ".0" there); both come from one sequence value.
+gpu_tuned_local_version_dated() {
+    local variant="${1:-}" cuda="${2:-}" date="${3:-}" seq="${4:-0}"
+    if [[ ! "${variant}" =~ ^[a-z][a-z0-9]*$ ]]; then
+        echo "ERROR: gpu_tuned_local_version_dated: variant '${variant}' must be lowercase alphanumeric (e.g. gb10)." >&2
+        return 1
+    fi
+    if [[ ! "${cuda}" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: gpu_tuned_local_version_dated: cuda-compact '${cuda}' must be digits only (e.g. 134 for CUDA 13.4)." >&2
+        return 1
+    fi
+    if ! gpu_tuned_valid_date "${date}"; then
+        echo "ERROR: gpu_tuned_local_version_dated: date '${date}' must be a real calendar date as YYYYMMDD, not starting with 0." >&2
+        return 1
+    fi
+    if [[ ! "${seq}" =~ ^(0|[1-9][0-9]*)$ ]]; then
+        echo "ERROR: gpu_tuned_local_version_dated: sequence '${seq}' must be a canonical integer (0 = first build of the day, no leading zeros)." >&2
+        return 1
+    fi
+    if [ "${seq}" = "0" ]; then
+        echo "${variant}.cu${cuda}.${date}"
+    else
+        echo "${variant}.cu${cuda}.${date}.${seq}"
+    fi
+}
+
+# gpu_tuned_date_label <version-string> -- prints the "<YYYYMMDD>[.<seq>]" label
+# at the END of a date-form tuned version (e.g. "0.7.0+gb10.cu134.20261010.1" ->
+# "20261010.1"), or nothing (still exit 0) if the version does not end that way.
+# Anchored on the "<variant>.cu<cuda>." that precedes it, because without the old
+# "tuning" marker a bare digit match would also hit a CUDA segment or setuptools_scm's
+# g<sha>. A ".0" sequence and an impossible calendar date are not labels. Never
+# fails (callers run under pipefail).
+gpu_tuned_date_label() {
+    local v="${1:-}" label=""
+    if [[ "${v}" =~ \.cu[0-9]+\.([1-9][0-9]{7}(\.[1-9][0-9]*)?)$ ]]; then
+        label="${BASH_REMATCH[1]}"
+        gpu_tuned_valid_date "${label:0:8}" || label=""
+    fi
+    [ -z "${label}" ] || printf '%s\n' "${label}"
+    return 0
+}
+
 # gpu_tuned_check_main_current [repo-dir] -- fails loudly if the tuning counter
 # (git rev-list --count main..HEAD, see gpu_tuned_tuning_count) would include
 # upstream's commits rather than only ours. That happens when upstream has been

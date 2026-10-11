@@ -1,8 +1,9 @@
 """Audit wheel versions against the tuned-builds version-style rule.
 
 The rule and the reasoning behind it are in docs/VERSIONING.md: a tuned wheel's
-local version is ``<variant>.cu<cuda>.tuning.<N>`` with ``N`` a numeric,
-non-zero-padded segment. This tool classifies every wheel it is given, flags
+local version is ``<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]`` (decided 2026-10-11).
+The earlier ``<variant>.cu<cuda>.tuning.<N>`` counter form is still accepted
+while consumers migrate. This tool classifies every wheel it is given, flags
 problems the rule exists to prevent, and can render the result as markdown.
 
 Sources of wheels (choose one):
@@ -11,11 +12,12 @@ Sources of wheels (choose one):
   * ``--files PATH...``: local wheel files, e.g. a fresh ``dist/*.whl``.
 
 Exit status is 1 when ``--strict`` is given and any finding was reported, or
-when ``--files`` was used and a wheel is not ``conforming`` (so it can gate a
-release script).
+when ``--files`` was used and a wheel is neither ``dated`` nor ``conforming``
+(so it can gate a release script).
 """
 
 import argparse
+import datetime
 import logging
 import re
 import subprocess
@@ -30,6 +32,7 @@ from packaging.version import Version
 
 logger = logging.getLogger(__name__)
 
+DATED = "dated"
 CONFORMING = "conforming"
 LEGACY_V = "legacy-v"
 PRE_MARKER = "pre-marker"
@@ -41,13 +44,20 @@ OTHER = "other"
 # setuptools_scm (vllm) before the tuned part.
 SCM_PREFIX = r"(?:[a-z][a-z0-9]*\.)*"
 TUNED_PART = r"[a-z][a-z0-9]*\.cu[0-9]+\.tuning\."
+DATED_RE = re.compile(
+    rf"^{SCM_PREFIX}[a-z][a-z0-9]*\.cu[0-9]+\.([1-9][0-9]{{7}})(?:\.[1-9][0-9]*)?$"
+)
 CONFORMING_RE = re.compile(rf"^{SCM_PREFIX}{TUNED_PART}(0|[1-9][0-9]*)$")
 LEGACY_V_RE = re.compile(rf"^{SCM_PREFIX}{TUNED_PART}v[0-9]+$")
 PLATFORM_ONLY_RE = re.compile(r"^cu[0-9]+$")
 TUNED_VARIANT_RE = re.compile(r"(^|\.)(gb10|rtx40|rtx50)(\.|$)")
 
+# Classes a wheel may have and still pass the ``--files`` release gate.
+ACCEPTED = (DATED, CONFORMING)
+
 CLASS_MEANING = {
-    CONFORMING: "current rule (tuning.N)",
+    DATED: "current rule (<variant>.cu<cuda>.<YYYYMMDD>[.<seq>])",
+    CONFORMING: "tuning.N counter (previous rule; accepted until consumers migrate)",
     LEGACY_V: "legacy tuning.vN (fused counter; kept, not renamed)",
     PRE_MARKER: "tuned variant but no tuning counter",
     PLATFORM_ONLY: "platform tag only, e.g. +cu133 (upstream style)",
@@ -95,6 +105,9 @@ class WheelVersionAudit:
         """Return the scheme name for a normalized local version label."""
         if not local:
             return NO_LOCAL
+        dated = DATED_RE.match(local)
+        if dated and WheelVersionAudit._is_calendar_date(dated.group(1)):
+            return DATED
         if CONFORMING_RE.match(local):
             return CONFORMING
         if LEGACY_V_RE.match(local):
@@ -104,6 +117,15 @@ class WheelVersionAudit:
         if TUNED_VARIANT_RE.search(local):
             return PRE_MARKER
         return OTHER
+
+    @staticmethod
+    def _is_calendar_date(label: str) -> bool:
+        """Return whether an 8-digit label is a real calendar day."""
+        try:
+            datetime.datetime.strptime(label, "%Y%m%d")
+        except ValueError:
+            return False
+        return True
 
     @classmethod
     def parse_wheel(
@@ -294,7 +316,7 @@ class WheelVersionAudit:
             for finding in findings:
                 print(f"FINDING: {finding}")
         not_conforming = bool(args.files) and any(
-            r.classification != CONFORMING for r in audit.records
+            r.classification not in ACCEPTED for r in audit.records
         )
         return 1 if (args.strict and findings) or not_conforming else 0
 

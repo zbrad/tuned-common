@@ -1,33 +1,80 @@
 # Wheel version style for tuned builds
 
-**Rule:** every tuned wheel carries this PEP 440 local-version label, built only
-by `gpu_tuned_local_version` (in `tuned-common.sh`), never by hand:
+**Rule (current, user decision 2026-10-11):** every tuned wheel carries this PEP 440
+local-version label, built only by `gpu_tuned_local_version_dated` (in
+`tuned-common.sh`), never by hand:
 
 ```
-<public version>+<variant>.cu<cuda>.tuning.<N>
-e.g.  0.7.0+gb10.cu134.tuning.149
+<public version>+<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]
+e.g.  2.15.0+gb10.cu134.20261010        first build of that day
+      2.15.0+gb10.cu134.20261010.1      second build the same day
 ```
 
 - `<variant>`: lowercase alphanumeric (`gb10`, `rtx50`).
 - `cu<cuda>`: CUDA toolkit, digits only, no dot (`cu134` for 13.4).
-- `tuning.<N>`: `N` is `git rev-list --count main..HEAD` (tuned-builds commits ahead of
-  local `main`), as its **own purely numeric segment**, canonical decimal, **never
-  zero-padded**. **Precondition:** local `main` must equal `upstream/main`. After every
-  fetch or merge of upstream, run `git fetch upstream main:main` (fast-forward only)
-  *before* building; otherwise `N` also counts upstream's commits.
+- `<YYYYMMDD>`: a real calendar date, not starting with `0`, as its **own purely
+  numeric segment**. Intended source: the committer date (UTC) of the tuned
+  commit, so rebuilding the same commit reproduces the label (the allocator that
+  supplies it is a separate piece of work; until it exists the caller passes the
+  date). It replaces the commit counter, so the "local `main` must equal
+  `upstream/main`" precondition of the old rule does not apply to this form.
+- `<seq>`: the build's sequence within that date. `0` is the first build and is
+  **omitted**; `1`, `2`, ... are appended. Canonical integer, never zero-padded.
+  `.0` is never produced and is not accepted by the parser: PEP 440 sorts
+  `<date>.0` above `<date>`, which would be a second spelling of the first
+  build. The native release tag renders the same integer in full
+  (`v0.<date>.<seq>`, so `.0` there); both come from one sequence value.
+- The public version is **upstream's and is not touched**. That is deliberate: a
+  version must satisfy what other packages require of the package (see "Why the
+  public version and the distribution name stay upstream's").
 - Lowercase, dot-separated, letters and digits only. No `-`, no `_`.
 - An upstream-derived prefix segment is allowed before the tuned part
-  (`+g44a0a3c96.gb10.cu134.tuning.539`): `setuptools_scm` dev versions (vllm)
+  (`+g44a0a3c96.gb10.cu134.20261010`): `setuptools_scm` dev versions (vllm)
   put `g<sha>` there. It must start with a letter, so it can never be a
-  purely numeric segment that PEP 440 would rewrite.
+  purely numeric segment that PEP 440 would rewrite. That prefix already makes
+  local-label ordering *across* vllm builds depend on the sha text, which a
+  date does not fix.
 - The wheel filename, release tag, release title and installed metadata must all
-  show the same string. Parse it with `gpu_tuned_tuning_label` (matches
-  `tuning\.[0-9]+`), never with a hand-written regex.
+  show the same string. Parse it with `gpu_tuned_date_label` (anchored on the
+  preceding `.cu<cuda>.`; a bare digit match would also hit a public
+  `2.15.0.dev20260911`), never with a hand-written regex.
 
-Older wheels use the legacy form `tuning.vN` (and pytorch's tags use
-`tuning-vN`); see "Backfill" below.
+### Previous rule (2026-09-18 to 2026-10-11), still accepted
 
-## Why (PEP 440 facts, verified with `packaging` 26.2)
+`<public version>+<variant>.cu<cuda>.tuning.<N>`, `N` = `git rev-list --count
+main..HEAD`, built by `gpu_tuned_local_version`, parsed by `gpu_tuned_tuning_label`.
+Those functions and the audit's `conforming` class are kept until every consumer has
+migrated. Wheels already published in that form, and the older `tuning.vN` form
+(pytorch's tags use `tuning-vN`), are **not renamed** because consumers pin exact URLs.
+Why it changed: the counter needed a hand-run `git fetch upstream main:main` before every
+build and was inflated by 21-485 when forgotten (found 2026-09-18), and the user wanted a
+shorter version string (dropping the `tuning.` marker; the `<variant>` already marks the
+wheel as ours) that is meaningful at a glance. Ordering is verified in
+`tests/test_wheel_version_audit.py`: every date label sorts above every `tuning.N`,
+`tuning.vN` and the bare `+gb10`, and `<date>.2 < <date>.10`.
+
+## Why the public version and the distribution name stay upstream's
+
+Considered and rejected 2026-10-11: giving tuned artifacts their own version space
+(`v0.<date>...`) or a `-tuned` distribution name. Tested with `packaging` 26.3 and with
+pip and uv 0.11.3:
+
+- A wheel versioned `2.15.0+gb10...` satisfies `==2.15.0`, `>=2.4`, `>=2.13,<2.16`,
+  `~=2.15.0` and `==2.15.*`; a `0.20261010.0` wheel fails all five.
+- A renamed distribution (`torch-tuned`) that declares `Provides-Dist: torch (==2.15.0)`
+  still fails `consumer requires torch==2.15.0` in both pip and uv: neither honors
+  `Provides-Dist`. With network access pip would instead fetch PyPI's `torch` and install
+  both over the same `torch/` directory (inferred, not tested).
+- In `~/gh/vllm/.venv`, 10 installed packages require torch outside of extras: 3 are ours
+  (vllm, vllm-flash-attn, flashinfer-python) and 7 are third-party
+  (compressed-tensors, humming-kernels, quack-kernels, tilelang, tokenspeed-mla,
+  torch_c_dlpack_ext, xgrammar). Renaming would mean forking all seven. vllm itself reads
+  the version at runtime in about 50 `is_torch_equal_or_newer` calls (floors up to 2.12).
+- So the only way to a clean tuned version number is a two-wheel split (an empty
+  upstream-named shim depending on a renamed payload), which doubles every wheel and was
+  not built. Not adopted.
+
+## Why (PEP 440 facts, verified with `packaging` 26.2; written for the counter form, still applies)
 
 1. **Allowed characters.** A local label is ASCII letters, digits and `.`. `-` and
    `_` are accepted on input but normalized to `.`, and case is lowercased. So
@@ -83,7 +130,16 @@ PEP 440 itself ([spec](https://peps.python.org/pep-0440/); further reading:
 
 ## Enforcement
 
-- `gpu_tuned_local_version <variant> <cuda> <count>` builds the label and
+- `gpu_tuned_local_version_dated <variant> <cuda> <YYYYMMDD> [<seq>]` builds the
+  current label and **fails loudly** on a bad variant or CUDA tag, an impossible or
+  zero-led date, or a non-canonical sequence. `gpu_tuned_valid_date <YYYYMMDD>` is its
+  date check. `gpu_tuned_date_label <version>` extracts `<YYYYMMDD>[.<seq>]` (anchored,
+  never fails). New wheel scripts call these. Consumers still on the counter form keep
+  calling the three functions below until migrated: the shell helpers are not yet wired
+  into the consumers, whose `setup.py` files (vllm and others) build the counter label
+  themselves, and flashinfer's and vllm's `release.sh` read it back with
+  `gpu_tuned_tuning_label`.
+- `gpu_tuned_local_version <variant> <cuda> <count>` builds the previous-rule label and
   **fails loudly** on a non-conforming input (wrong characters, zero-padded or
   non-numeric count). All wheel scripts must call it.
 - `gpu_tuned_tuning_count [dir]` computes N (`git rev-list --count main..HEAD`) and

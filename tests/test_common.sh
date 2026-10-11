@@ -206,6 +206,46 @@ check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r tag title notes asset; grep -q 'release create tag' '${gate}/gh.log'"
 rm -rf "${gate}"
 
+# --- date-form wheel label ---
+check "dated label: first build of the day has no sequence suffix" 0 "-" "^gb10\.cu134\.20261010$" \
+  "${pre}; gpu_tuned_local_version_dated gb10 134 20261010"
+check "dated label: seq 0 is the same as omitted" 0 "-" "^gb10\.cu134\.20261010$" \
+  "${pre}; gpu_tuned_local_version_dated gb10 134 20261010 0"
+check "dated label: later builds append .N" 0 "-" "^gb10\.cu134\.20261010\.2$" \
+  "${pre}; gpu_tuned_local_version_dated gb10 134 20261010 2"
+check "dated label: an impossible calendar date is refused" 1 "real calendar date" "-" \
+  "${pre}; gpu_tuned_local_version_dated gb10 134 20260230"
+check "dated label: a leading-zero date is refused" 1 "not starting with 0" "-" \
+  "${pre}; gpu_tuned_local_version_dated gb10 134 02061010"
+check "dated label: a zero-padded sequence is refused" 1 "canonical integer" "-" \
+  "${pre}; gpu_tuned_local_version_dated gb10 134 20261010 01"
+check "dated label: a non-numeric sequence is refused" 1 "canonical integer" "-" \
+  "${pre}; gpu_tuned_local_version_dated gb10 134 20261010 x"
+check "dated label: bad variant is refused" 1 "variant" "-" "${pre}; gpu_tuned_local_version_dated GB10 134 20261010"
+check "dated label: bad cuda tag is refused" 1 "cuda-compact" "-" "${pre}; gpu_tuned_local_version_dated gb10 13.4 20261010"
+check "date_label: reads a bare date" 0 "-" "^20261010$" "${pre}; gpu_tuned_date_label '0.7.0+gb10.cu134.20261010'"
+check "date_label: reads date and sequence" 0 "-" "^20261010\.12$" "${pre}; gpu_tuned_date_label '0.7.0+gb10.cu134.20261010.12'"
+check "date_label: reads it through vllm's setuptools_scm g<sha> prefix" 0 "-" "^20261010$" \
+  "${pre}; gpu_tuned_date_label '0.29.1rc1.dev441+gd9d8249e9.gb10.cu134.20261010'"
+check "date_label: the old tuning.N counter is not a date label (empty, exit 0, silent)" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.tuning.62')\"; echo \"[\${X}]\""
+check "date_label: a CUDA-only local is not a date label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134')\"; echo \"[\${X}]\""
+check "date_label: a .0 sequence is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.20261010.0')\"; echo \"[\${X}]\""
+check "date_label: an impossible date is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.20260230')\"; echo \"[\${X}]\""
+check "date_label: a public .dev<date> version is not mistaken for a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label '2.15.0.dev20260911')\"; echo \"[\${X}]\""
+check "date_label: a date with no <variant>.cu<cuda>. before it is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.20261010')\"; echo \"[\${X}]\""
+check "date_label: round-trips what local_version_dated builds" 0 "-" "^20261010\.3$" \
+  "${pre}; L=\"\$(gpu_tuned_local_version_dated gb10 134 20261010 3)\"; gpu_tuned_date_label \"0.7.0+\${L}\""
+check "legacy gpu_tuned_local_version is unchanged" 0 "-" "^gb10\.cu134\.tuning\.149$" \
+  "${pre}; gpu_tuned_local_version gb10 134 149"
+check "legacy gpu_tuned_tuning_label is unchanged" 0 "-" "^tuning\.149$" \
+  "${pre}; gpu_tuned_tuning_label '0.7.0+gb10.cu134.tuning.149'"
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: cuda tag then variant under cpp/build" 0 "-" "^/r/cpp/build/cu133/gb10$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"

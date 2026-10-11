@@ -3,8 +3,10 @@
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 from wheel_version_audit import (
     CONFORMING,
+    DATED,
     LEGACY_V,
     NO_LOCAL,
     OTHER,
@@ -25,6 +27,13 @@ def _audit(*rows: tuple[str, str, str]) -> WheelVersionAudit:
 @pytest.mark.parametrize(
     ("local", "expected"),
     [
+        ("gb10.cu134.20261010", DATED),
+        ("gb10.cu134.20261010.1", DATED),
+        ("g44a0a3c96.gb10.cu134.20261010", DATED),
+        ("gb10.cu134.20261010.0", PRE_MARKER),
+        ("gb10.cu134.20261010.01", PRE_MARKER),
+        ("gb10.cu134.20260230", PRE_MARKER),
+        ("gb10.cu134.02061010", PRE_MARKER),
         ("gb10.cu134.tuning.149", CONFORMING),
         ("g44a0a3c96.gb10.cu134.tuning.539", CONFORMING),
         ("gb10.cu134.tuning.0", CONFORMING),
@@ -112,3 +121,38 @@ def test_main_files_mode_passes_for_conforming_wheel(tmp_path: Path) -> None:
     wheel = tmp_path / ("pkg-1.0+gb10.cu134.tuning.3" + TAIL)
     wheel.write_text("")
     assert WheelVersionAudit.main(["--files", str(wheel)]) == 0
+
+
+def test_main_files_mode_passes_for_dated_wheel(tmp_path: Path) -> None:
+    wheel = tmp_path / ("pkg-1.0+gb10.cu134.20261010" + TAIL)
+    wheel.write_text("")
+    assert WheelVersionAudit.main(["--files", str(wheel)]) == 0
+
+
+@pytest.mark.parametrize(
+    "label", ["gb10.cu134.20261010", "gb10.cu134.20261010.1", "gb10.cu134.20261010.12"]
+)
+def test_dated_label_is_already_in_normalized_form(label: str) -> None:
+    """A wheel filename carries the normalized version, so the label must be it."""
+    version = f"0.7.0+{label}"
+    assert str(Version(version)) == version
+
+
+def test_dated_labels_sort_above_every_older_scheme_and_in_build_order() -> None:
+    """The date form must outrank the counter forms already published."""
+    base = "0.7.0+gb10.cu134."
+    ascending = [
+        "tuning.v149",
+        "tuning.v34",
+        "tuning.35",
+        "tuning.62",
+        "20261010",
+        "20261010.1",
+        "20261010.2",
+        "20261010.10",
+        "20261011",
+    ]
+    versions = [Version(base + label) for label in ascending]
+    assert versions == sorted(versions)
+    assert Version("0.7.0+gb10") < Version(base + "20261010")
+    assert Version(base + "20261010.2") < Version(base + "20261010.10")

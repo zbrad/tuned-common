@@ -38,8 +38,9 @@ source "${GPU_TUNED_SELF_DIR}/common.sh"
 
 ## Version style and loud failures
 
-See `docs/VERSIONING.md` for the wheel version-label rule (`gpu_tuned_local_version`,
-`gpu_tuned_tuning_label`) and the research behind it. Sourcing `tuned-common.sh` also installs
+See `docs/VERSIONING.md` for the wheel version-label rule (current date form:
+`gpu_tuned_local_version_dated`, `gpu_tuned_date_label`; previous counter form:
+`gpu_tuned_local_version`, `gpu_tuned_tuning_label`, still accepted) and the research behind it. Sourcing `tuned-common.sh` also installs
 an `ERR` trap so aborts under `set -e` are never silent (opt out: `GPU_TUNED_NO_ERR_TRAP=1`).
 Run `bash tests/test_common.sh` before changing the library.
 `tools/wheel_version_audit.py` audits published wheels against the rule (tests:
