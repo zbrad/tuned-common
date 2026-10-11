@@ -3,7 +3,9 @@
 # Usage: bash tests/test_common.sh   (exit 0 = all pass)
 set -uo pipefail
 LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/tuned-common.sh"
-PASS=0; FAIL=0
+PASS=0; FAIL=0; SKIPPED=0
+# skip <name> <reason> -- a test that could not run is reported, never counted as passed
+skip() { SKIPPED=$((SKIPPED+1)); echo "SKIP - $1 ($2)"; }
 
 # check <name> <want-exit> <stderr-must-match|-> <stdout-must-match|-> <script...>
 check() {
@@ -321,6 +323,84 @@ check "build_local_version: its output is read back by gpu_tuned_date_label" 0 "
   "${pre}; ${aw}; V=\"\$(CUDA_HOME='${al}/cuda-13.4' gpu_tuned_build_local_version gb10 .)\"; gpu_tuned_date_label \"0.1+\${V}\""
 rm -rf "${al}"
 
+# --- unique shared-object identities (rename + fail-closed gate + coexistence) ---
+check "so_name: versioned name" 0 "-" "^libggml-tuned\\.so\\.0\\.23\\.0$" "${pre}; gpu_tuned_tuned_so_name libggml.so.0.23.0"
+check "so_name: hyphenated stem, soname form" 0 "-" "^libggml-base-tuned\\.so\\.0$" "${pre}; gpu_tuned_tuned_so_name libggml-base.so.0"
+check "so_name: unversioned impl library" 0 "-" "^libllama-server-impl-tuned\\.so$" "${pre}; gpu_tuned_tuned_so_name libllama-server-impl.so"
+check "so_name: idempotent" 0 "-" "^libfoo-tuned\\.so\\.1$" "${pre}; gpu_tuned_tuned_so_name libfoo-tuned.so.1"
+check "so_name: a non-library name is refused" 1 "not a lib\\*\\.so" "-" "${pre}; gpu_tuned_tuned_so_name notalib.txt"
+check "so_name: the mark is one constant" 0 "-" "^libx_T\\.so$" "${pre}; GPU_TUNED_SO_MARK=_T; gpu_tuned_tuned_so_name libx.so"
+
+if ! command -v gcc >/dev/null 2>&1 || ! command -v patchelf >/dev/null 2>&1; then
+    skip "unique identities: rename, gate and coexistence" "needs gcc and patchelf; NOT verified on this machine"
+else
+co="$(mktemp -d)"; mkdir -p "${co}/ours" "${co}/up" "${co}/sys"
+(
+    set -e; cd "${co}"
+    printf 'int demo_which(void){return 1;}\n' > up.c
+    printf 'int demo_which(void){return 2;}\n' > ours.c
+    printf 'int demo_which(void); int demo_extra(void){return demo_which()+10;}\n' > extra.c
+    printf 'int sys_val(void){return 100;}\n' > sys.c
+    printf 'int demo_which(void); int demo_extra(void); int sys_val(void);\nint main(void){int w=demo_which(); if (sys_val()!=100||demo_extra()!=w+10) return 99; return w;}\n' > app.c
+    printf 'int demo_which(void);\nint main(void){return demo_which();}\n' > stock.c
+    gcc -shared -fPIC -Wl,-soname,libdemo.so.0 up.c -o up/libdemo.so.0                 # upstream's: answers 1
+    gcc stock.c -o up/app -L up -l:libdemo.so.0                                        # a stock app, no RUNPATH
+    gcc -shared -fPIC -Wl,-soname,libsys.so.2 sys.c -o sys/libsys.so.2                 # a bundled system library
+    gcc -shared -fPIC -Wl,-soname,libdemo.so.0 ours.c -o ours/libdemo.so.0.1           # ours, SAME soname as upstream's
+    cp ours/libdemo.so.0.1 ours/libdemo.so.0                                           # package.sh stages a copy under the soname too
+    gcc -shared -fPIC -Wl,-soname,libdemo-extra.so extra.c -o ours/libdemo-extra.so -L ours -l:libdemo.so.0
+    cp sys/libsys.so.2 ours/
+    gcc app.c -o ours/app -L ours -l:libdemo.so.0 -l:libdemo-extra.so -l:libsys.so.2 -Wl,--no-as-needed -Wl,-rpath,'$ORIGIN' -Wl,--enable-new-dtags
+    printf 'libdemo.so.0.1\nlibdemo.so.0\nlibdemo-extra.so\n' > ours.manifest
+    printf 'libsys.so.2\n' > sys.manifest
+) >/dev/null 2>&1
+ruN() { ( cd "$1"; LD_LIBRARY_PATH="${2:-}" ./app >/dev/null 2>&1; echo -n "$?" ); }
+GATE="gpu_tuned_verify_unique_sonames '${co}/ours' '${co}/sys.manifest' '' '^libc\\.so'"
+
+check "gate: an unrenamed stage fails closed and names the shared identities" 1 "VIOLATION: libdemo\\.so\\.0 is not tuned" "-" "${pre}; ${GATE}"
+check "gate: ... including the library that links it" 1 "VIOLATION: libdemo-extra\\.so is not tuned" "-" "${pre}; ${GATE}"
+check "A. today's defence, clean environment: our app uses our library" 0 "-" "^2$" "$(declare -f ruN); ruN '${co}/ours' ''"
+check "B. LD_LIBRARY_PATH at upstream's dir: RUNPATH loses, our app binds upstream's" 0 "-" "^1$" "$(declare -f ruN); ruN '${co}/ours' '${co}/up'"
+
+check "rename: renames our files and prints each" 0 "-" "libdemo\\.so\\.0\\.1 -> libdemo-tuned\\.so\\.0\\.1" "${pre}; gpu_tuned_rename_sonames '${co}/ours' '${co}/ours.manifest'"
+check "rename: files are renamed, a bundled system library is not" 0 "-" "-" \
+  "cd '${co}/ours'; [ -f libdemo-tuned.so.0.1 ] && [ -f libdemo-tuned.so.0 ] && [ -f libdemo-extra-tuned.so ] && [ -f libsys.so.2 ] && [ ! -e libdemo.so.0 ] && [ ! -e libdemo-extra.so ]"
+check "rename: SONAMEs carry the mark" 0 "-" "^libdemo-tuned\\.so\\.0 libdemo-extra-tuned\\.so libsys\\.so\\.2$" \
+  "cd '${co}/ours'; echo \"\$(patchelf --print-soname libdemo-tuned.so.0.1) \$(patchelf --print-soname libdemo-extra-tuned.so) \$(patchelf --print-soname libsys.so.2)\""
+check "rename: the executable's DT_NEEDED is rewritten, the system library's is not" 0 "-" "libdemo-tuned\\.so\\.0" \
+  "cd '${co}/ours'; patchelf --print-needed app | tr '\n' ' '; patchelf --print-needed app | grep -q '^libsys.so.2$'"
+check "rename: a library's own DT_NEEDED on another renamed library is rewritten" 0 "-" "^libdemo-tuned\\.so\\.0$" \
+  "cd '${co}/ours'; patchelf --print-needed libdemo-extra-tuned.so | grep -E 'libdemo' | head -1"
+check "gate: the renamed stage passes" 0 "-" "-" "${pre}; ${GATE}"
+check "rename: running it again changes nothing and the gate still passes" 0 "-" "-" \
+  "${pre}; gpu_tuned_rename_sonames '${co}/ours' '${co}/ours.manifest' >/dev/null; ${GATE}"
+check "C. renamed: our app uses our library even with LD_LIBRARY_PATH at upstream's dir" 0 "-" "^2$" "$(declare -f ruN); ruN '${co}/ours' '${co}/up'"
+check "D1. renamed: a STOCK app is unaffected with our dir listed BEFORE upstream's" 0 "-" "^1$" "$(declare -f ruN); ruN '${co}/up' '${co}/ours:${co}/up'"
+check "D2. ... and with upstream's first" 0 "-" "^1$" "$(declare -f ruN); ruN '${co}/up' '${co}/up:${co}/ours'"
+check "E. one directory: the tuned and the stock library coexist under different names" 0 "-" "^1 2$" \
+  "mkdir -p '${co}/shared'; cp '${co}/ours/'libdemo-tuned.so.0 '${co}/up/libdemo.so.0' '${co}/shared/'; cp '${co}/up/app' '${co}/shared/stock'; cp '${co}/ours/app' '${co}/shared/tunedapp'; cp '${co}/ours/'libdemo-extra-tuned.so '${co}/ours/libsys.so.2' '${co}/shared/'; cd '${co}/shared'; LD_LIBRARY_PATH=. ./stock; a=\$?; patchelf --remove-rpath tunedapp; LD_LIBRARY_PATH=. ./tunedapp; echo \"\$a \$?\""
+
+# the gate must fail closed
+cp -r "${co}/ours" "${co}/ours-bad"
+printf '' > "${co}/ours-bad/libnew.so.0"; cp "${co}/ours/libsys.so.2" "${co}/ours-bad/libnew.so.0"
+check "gate: a library upstream adds later (not in the manifest) is a violation, not a pass" 1 "VIOLATION: libnew\\.so\\.0 is not tuned" "-" \
+  "${pre}; gpu_tuned_verify_unique_sonames '${co}/ours-bad' '${co}/sys.manifest' '' '^libc\\.so'"
+rm -f "${co}/ours-bad/libdemo-tuned.so.0"
+check "gate: a needed tuned library missing from the stage is a violation" 1 "needs libdemo-tuned\\.so\\.0, which is not in the stage" "-" \
+  "${pre}; gpu_tuned_verify_unique_sonames '${co}/ours-bad' '${co}/sys.manifest' '' '^libc\\.so'"
+check "gate: a needed library neither staged nor assumed present is a violation (closure)" 1 "neither in the stage nor assumed present" "-" \
+  "${pre}; gpu_tuned_verify_unique_sonames '${co}/ours' '${co}/sys.manifest' '' '^nothing$'"
+check "gate: a renamed file whose SONAME was not rewritten is a violation" 1 "its SONAME is" "-" \
+  "cp -r '${co}/ours' '${co}/ours-soname'; patchelf --set-soname libdemo.so.0 '${co}/ours-soname/libdemo-tuned.so.0.1'; ${pre}; gpu_tuned_verify_unique_sonames '${co}/ours-soname' '${co}/sys.manifest' '' '^libc\\.so'"
+check "rename: a manifest entry that is not in the stage is an error" 1 "not in" "-" \
+  "printf 'libghost.so.1\n' > '${co}/ghost.manifest'; ${pre}; gpu_tuned_rename_sonames '${co}/ours' '${co}/ghost.manifest'"
+# keep-regex (a build that loads backends by filename)
+mkdir -p "${co}/k"; cp "${co}/sys/libsys.so.2" "${co}/k/"; rm -rf "${co}/k2"; cp -r "${co}/up" "${co}/k2" >/dev/null 2>&1
+check "rename: --keep leaves matching names alone (and the gate accepts them as kept)" 0 "-" "-" \
+  "cd '${co}'; rm -rf kk; mkdir kk; cp up/libdemo.so.0 kk/libplug.so.0; printf 'libplug.so.0\n' > kk.manifest; ${pre}; gpu_tuned_rename_sonames kk kk.manifest '^libplug'; [ -f kk/libplug.so.0 ] && gpu_tuned_verify_unique_sonames kk - '^libplug' '^libc\\.so'"
+rm -rf "${co}"
+fi
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: cuda tag then variant under cpp/build" 0 "-" "^/r/cpp/build/cu133/gb10$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"
@@ -492,5 +572,5 @@ check "repo_env: newly setting a protected key that was unset is flagged" 1 \
 check "repo_env: a missing file is an error" 1 "no such file" "-" "${base}; gpu_tuned_load_repo_env '${re}/none.env'"
 rm -rf "${re}"
 
-echo; echo "passed=${PASS} failed=${FAIL}"
+echo; echo "passed=${PASS} failed=${FAIL} skipped=${SKIPPED}"
 [[ "${FAIL}" -eq 0 ]]

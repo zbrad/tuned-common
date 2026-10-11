@@ -1197,6 +1197,142 @@ gpu_tuned_build_local_version() {
     gpu_tuned_local_version_dated "${variant}" "${cuda}" "${label%%.*}" "$(gpu_tuned_label_seq "${label}")"
 }
 
+# ---- unique shared-object identities -------------------------------------------------
+#
+# Why: the dynamic linker matches a needed library by its SONAME. A tuned package that ships
+# libggml.so.0 shares that identity with a stock llama.cpp, so (verified with toy libraries in
+# tests/test_common.sh) a stock binary can silently bind OUR library depending on directory
+# order, our binary can bind THEIRS when LD_LIBRARY_PATH points there (RUNPATH loses to it), and
+# installing both into one directory makes the second overwrite the first. A renamed file with a
+# renamed SONAME and rewritten DT_NEEDED is immune to all three. patchelf does it at package time;
+# no upstream-tracked build file changes.
+
+# The mark inserted before ".so". One constant, so changing the convention is one edit.
+GPU_TUNED_SO_MARK="-tuned"
+
+# gpu_tuned_tuned_so_name <so-file-name> -- prints the tuned form of a shared-object file name:
+# libggml.so.0.23.0 -> libggml-tuned.so.0.23.0, libllama-server-impl.so -> libllama-server-impl-tuned.so.
+# Idempotent (an already-marked name is unchanged). Fails on a name that is not lib*.so[.N...].
+gpu_tuned_tuned_so_name() {
+    local n="${1:-}"
+    if [[ ! "${n}" =~ ^(lib.+)\.so((\.[0-9]+)*)$ ]]; then
+        echo "ERROR: gpu_tuned_tuned_so_name: '${n}' is not a lib*.so[.N...] name." >&2
+        return 1
+    fi
+    if [[ "${BASH_REMATCH[1]}" == *"${GPU_TUNED_SO_MARK}" ]]; then
+        printf '%s\n' "${n}"
+    else
+        printf '%s\n' "${BASH_REMATCH[1]}${GPU_TUNED_SO_MARK}.so${BASH_REMATCH[2]}"
+    fi
+}
+
+# gpu_tuned_rename_sonames <stage-dir> <manifest> [keep-regex] -- give the shared objects that
+# THIS build produced a unique identity. <manifest> lists, one per line, the file names in
+# <stage-dir> that are our own build output (select by provenance, never by name pattern: a
+# pattern misses whatever upstream adds next). Each is renamed to its tuned name and gets a
+# tuned SONAME; then the DT_NEEDED of every ELF in <stage-dir> that names a renamed file is
+# rewritten, executables included. Names matching [keep-regex] are left alone (for builds that
+# load backends by filename; none today). Files not in the manifest (bundled system libraries
+# such as libnccl) are never touched. Idempotent. Run after RUNPATH is set; re-check any
+# build-info stamp (gpu_tuned_verify_build_info) afterwards, patchelf rewrites the files.
+# Prints "old -> new" per rename.
+gpu_tuned_rename_sonames() {
+    local stage="${1:-}" manifest="${2:-}" keep="${3:-}" name new f soname d
+    declare -A map=()
+    if [ ! -d "${stage}" ] || [ ! -f "${manifest}" ]; then
+        echo "ERROR: gpu_tuned_rename_sonames: need a stage directory and a manifest file." >&2
+        return 1
+    fi
+    command -v patchelf >/dev/null 2>&1 || { echo "ERROR: gpu_tuned_rename_sonames: patchelf is not installed." >&2; return 1; }
+    while IFS= read -r name; do
+        [ -n "${name}" ] || continue
+        if [ -n "${keep}" ] && [[ "${name}" =~ ${keep} ]]; then continue; fi
+        if [ ! -f "${stage}/${name}" ] && [ ! -f "${stage}/$(gpu_tuned_tuned_so_name "${name}")" ]; then
+            echo "ERROR: gpu_tuned_rename_sonames: '${name}' is in the manifest but not in ${stage}." >&2
+            return 1
+        fi
+        new="$(gpu_tuned_tuned_so_name "${name}")" || return 1
+        map["${name}"]="${new}"
+    done < "${manifest}"
+    # pass 1: rename the files and give each a tuned SONAME
+    for name in "${!map[@]}"; do
+        new="${map[${name}]}"
+        if [ "${name}" != "${new}" ] && [ -e "${stage}/${name}" ]; then
+            if [ -e "${stage}/${new}" ]; then
+                echo "ERROR: gpu_tuned_rename_sonames: ${new} already exists in ${stage}, so ${name} cannot be renamed to it." >&2
+                return 1
+            fi
+            mv "${stage}/${name}" "${stage}/${new}"
+            echo "${name} -> ${new}"
+        fi                                                  # else: already renamed by an earlier run
+        soname="$(patchelf --print-soname "${stage}/${new}" 2>/dev/null || true)"
+        if [ -n "${soname}" ]; then
+            if [ -n "${keep}" ] && [[ "${soname}" =~ ${keep} ]]; then continue; fi
+            patchelf --set-soname "$(gpu_tuned_tuned_so_name "${soname}")" "${stage}/${new}"
+        fi
+    done
+    # pass 2: rewrite DT_NEEDED in every ELF in the stage
+    for f in "${stage}"/*; do
+        [ -f "${f}" ] && [ ! -L "${f}" ] || continue
+        patchelf --print-needed "${f}" >/dev/null 2>&1 || continue
+        while IFS= read -r d; do
+            [ -n "${d}" ] || continue
+            if [ -n "${map[${d}]:-}" ] && [ "${map[${d}]}" != "${d}" ]; then
+                patchelf --replace-needed "${d}" "${map[${d}]}" "${f}"
+            fi
+        done < <(patchelf --print-needed "${f}" 2>/dev/null)
+    done
+}
+
+# gpu_tuned_verify_unique_sonames <stage-dir> <system-manifest|-> [keep-regex] [assume-present-regex]
+# -- the gate; it FAILS CLOSED. Every shared object in <stage-dir> must be exactly one of:
+# tuned (file name and SONAME carry the mark), kept (matches [keep-regex]), or a bundled system
+# library recorded in <system-manifest> (one name per line; "-" for none). Anything else would
+# ship under a shared identity, so a library upstream adds later breaks the package build instead
+# of slipping through. It also checks closure: every DT_NEEDED of every ELF must be a file in the
+# stage or match [assume-present-regex] (glibc, the driver, the CUDA toolkit...), and a needed name
+# carrying the mark must exist in the stage. Prints every violation, returns 1 if any.
+gpu_tuned_verify_unique_sonames() {
+    local stage="${1:-}" sysman="${2:--}" keep="${3:-}" assume="${4:-}" f n soname d bad=0
+    declare -A sysnames=()
+    if [ ! -d "${stage}" ]; then echo "ERROR: gpu_tuned_verify_unique_sonames: no such stage directory: ${stage}" >&2; return 1; fi
+    if [ "${sysman}" != "-" ]; then
+        [ -f "${sysman}" ] || { echo "ERROR: gpu_tuned_verify_unique_sonames: no such system manifest: ${sysman}" >&2; return 1; }
+        while IFS= read -r n; do [ -n "${n}" ] && sysnames["${n}"]=1; done < "${sysman}"
+    fi
+    for f in "${stage}"/*; do
+        [ -f "${f}" ] && [ ! -L "${f}" ] || continue
+        patchelf --print-needed "${f}" >/dev/null 2>&1 || continue            # not an ELF
+        n="$(basename "${f}")"
+        if [[ "${n}" =~ ^lib.+\.so(\.[0-9]+)*$ ]]; then
+            soname="$(patchelf --print-soname "${f}" 2>/dev/null || true)"
+            if [ -n "${sysnames[${n}]:-}" ]; then
+                :                                                             # bundled system library, recorded
+            elif [ -n "${keep}" ] && [[ "${n}" =~ ${keep} ]]; then
+                :                                                             # kept on purpose
+            elif [[ "${n}" == *"${GPU_TUNED_SO_MARK}.so"* ]]; then
+                if [ -n "${soname}" ] && [[ "${soname}" != *"${GPU_TUNED_SO_MARK}.so"* ]]; then
+                    echo "VIOLATION: ${n} is renamed but its SONAME is '${soname}'." >&2; bad=1
+                fi
+            else
+                echo "VIOLATION: ${n} is not tuned, not kept and not a recorded system library: it would ship under a shared identity (SONAME '${soname:-none}')." >&2; bad=1
+            fi
+        fi
+        while IFS= read -r d; do
+            [ -n "${d}" ] || continue
+            if [ -e "${stage}/${d}" ]; then continue; fi
+            if [[ "${d}" == *"${GPU_TUNED_SO_MARK}.so"* ]]; then
+                echo "VIOLATION: ${n} needs ${d}, which is not in the stage." >&2; bad=1
+            elif [ -n "${assume}" ] && [[ "${d}" =~ ${assume} ]]; then
+                continue
+            else
+                echo "VIOLATION: ${n} needs ${d}, which is neither in the stage nor assumed present on the target." >&2; bad=1
+            fi
+        done < <(patchelf --print-needed "${f}" 2>/dev/null)
+    done
+    return "${bad}"
+}
+
 # gpu_tuned_check_main_current [repo-dir] -- fails loudly if the tuning counter
 # (git rev-list --count main..HEAD, see gpu_tuned_tuning_count) would include
 # upstream's commits rather than only ours. That happens when upstream has been
