@@ -1074,6 +1074,90 @@ gpu_tuned_date_label() {
     return 0
 }
 
+# gpu_tuned_head_date [dir] -- prints the UTC committer date of HEAD as YYYYMMDD: the
+# date a build of this commit is labelled with, so rebuilding the same commit reproduces
+# its label. Read with TZ=UTC and --date=format-local, NOT --date=format: the latter uses
+# the commit's own recorded timezone, which is a day off whenever a commit was made late in
+# the evening west of UTC (23:30-07:00 is the next day in UTC). Not the wall clock, and the
+# environment's TZ cannot change it.
+gpu_tuned_head_date() {
+    local dir="${1:-.}" d
+    d="$(TZ=UTC git -C "${dir}" log -1 --format=%cd --date=format-local:%Y%m%d HEAD 2>/dev/null || true)"
+    if ! gpu_tuned_valid_date "${d}"; then
+        echo "ERROR: gpu_tuned_head_date: cannot read a valid HEAD commit date in ${dir} (got '${d}')." >&2
+        return 1
+    fi
+    printf '%s\n' "${d}"
+}
+
+# gpu_tuned_taken_date_labels [dir] [remote] -- one "<YYYYMMDD>[.<seq>]" per line for every
+# date label already carried by a release tag in <remote> (default origin) or locally.
+# Tags are read with `git ls-remote`, not `gh release list` (which pages at 30 and needs auth);
+# a GitHub release is a git tag, so it is listed. Fails if the remote cannot be read: a silent
+# fallback to local tags could hand out a sequence that is already published.
+gpu_tuned_taken_date_labels() {
+    local dir="${1:-.}" remote="${2:-origin}" remote_tags local_tags t
+    if ! remote_tags="$(git -C "${dir}" ls-remote --tags "${remote}" 2>/dev/null)"; then
+        echo "ERROR: gpu_tuned_taken_date_labels: cannot read tags from remote '${remote}' in ${dir}, so an unused sequence cannot be chosen. Check the network, or choose it yourself with GPU_TUNED_LABEL_SEQ=<n>." >&2
+        return 1
+    fi
+    local_tags="$(git -C "${dir}" tag --list)"
+    {
+        printf '%s\n' "${remote_tags}" | awk '{print $2}' | sed 's#^refs/tags/##; s#\^{}$##'
+        printf '%s\n' "${local_tags}"
+    } | sort -u | while IFS= read -r t; do gpu_tuned_date_label "${t}"; done | sort -u
+}
+
+# gpu_tuned_next_seq <YYYYMMDD> -- reads the taken labels on stdin and prints the LOWEST
+# sequence (0, 1, 2, ...) whose label is not taken: 0 is the bare date, n is "<date>.<n>".
+# Lowest-unused, not highest-plus-one, so a gap is filled and the answer does not depend on
+# order. The sequence is per date across the repo (a second build that day gets .1 even for a
+# different CUDA tag), which keeps one integer per build date.
+gpu_tuned_next_seq() {
+    local date="${1:-}" taken label n=0
+    if ! gpu_tuned_valid_date "${date}"; then
+        echo "ERROR: gpu_tuned_next_seq: '${date}' is not a valid YYYYMMDD date." >&2
+        return 1
+    fi
+    taken="$(cat)"
+    while :; do
+        if [ "${n}" = 0 ]; then label="${date}"; else label="${date}.${n}"; fi
+        grep -qxF -- "${label}" <<< "${taken}" || break
+        n=$((n + 1))
+    done
+    printf '%s\n' "${n}"
+}
+
+# gpu_tuned_label_seq <label> -- the sequence integer of a "<YYYYMMDD>[.<seq>]" label
+# (0 for a bare date). One integer renders as the wheel label (0 omitted) and, later, as the
+# native tag v0.<date>.<seq> (0 written).
+gpu_tuned_label_seq() {
+    local label="${1:-}"
+    if [[ "${label}" == *.* ]]; then printf '%s\n' "${label#*.}"; else printf '0\n'; fi
+}
+
+# gpu_tuned_allocate_date_label [dir] [remote] -- prints the label for a build of HEAD:
+# "<YYYYMMDD>" for the first build of that UTC date, "<YYYYMMDD>.<n>" after. The date is
+# gpu_tuned_head_date; the sequence is the lowest unused one among the tags in <remote>.
+# GPU_TUNED_LABEL_SEQ=<n> skips the lookup and uses n (a canonical integer): for dev builds
+# that will never be published (seq 0, no network) and for an offline override. Fails loudly,
+# never guesses, if the remote cannot be read and no override is given.
+gpu_tuned_allocate_date_label() {
+    local dir="${1:-.}" remote="${2:-origin}" date seq taken
+    date="$(gpu_tuned_head_date "${dir}")" || return 1
+    if [ -n "${GPU_TUNED_LABEL_SEQ:-}" ]; then
+        if [[ ! "${GPU_TUNED_LABEL_SEQ}" =~ ^(0|[1-9][0-9]*)$ ]]; then
+            echo "ERROR: gpu_tuned_allocate_date_label: GPU_TUNED_LABEL_SEQ='${GPU_TUNED_LABEL_SEQ}' must be a canonical integer (0 = first build of the day, no leading zeros)." >&2
+            return 1
+        fi
+        seq="${GPU_TUNED_LABEL_SEQ}"
+    else
+        taken="$(gpu_tuned_taken_date_labels "${dir}" "${remote}")" || return 1
+        seq="$(printf '%s\n' "${taken}" | gpu_tuned_next_seq "${date}")" || return 1
+    fi
+    if [ "${seq}" = 0 ]; then printf '%s\n' "${date}"; else printf '%s.%s\n' "${date}" "${seq}"; fi
+}
+
 # gpu_tuned_check_main_current [repo-dir] -- fails loudly if the tuning counter
 # (git rev-list --count main..HEAD, see gpu_tuned_tuning_count) would include
 # upstream's commits rather than only ours. That happens when upstream has been

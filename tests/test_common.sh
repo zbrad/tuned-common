@@ -246,6 +246,56 @@ check "legacy gpu_tuned_local_version is unchanged" 0 "-" "^gb10\.cu134\.tuning\
 check "legacy gpu_tuned_tuning_label is unchanged" 0 "-" "^tuning\.149$" \
   "${pre}; gpu_tuned_tuning_label '0.7.0+gb10.cu134.tuning.149'"
 
+# --- allocator: HEAD date (UTC) and lowest unused sequence ---
+al="$(mktemp -d)"
+(
+    set -e; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+    git init -q --bare -b main "${al}/remote.git"
+    git init -q -b main "${al}/w"; cd "${al}/w"
+    # 23:30 on Oct 10 at UTC-7 is already Oct 11 in UTC
+    GIT_AUTHOR_DATE="2026-10-10T23:30:00-0700" GIT_COMMITTER_DATE="2026-10-10T23:30:00-0700" git commit -q --allow-empty -m c1
+    git remote add origin "${al}/remote.git"
+    git push -q origin main
+    git init -q -b main "${al}/empty"
+) >/dev/null 2>&1
+aw="cd '${al}/w'"
+tag_remote() { git -C "${al}/w" tag "$1" && git -C "${al}/w" push -q origin "$1" >/dev/null 2>&1; }
+check "head_date: UTC committer date, not the commit's own timezone" 0 "-" "^20261011$" "${pre}; ${aw}; gpu_tuned_head_date"
+check "head_date: the environment's TZ cannot change it" 0 "-" "^20261011$" "${pre}; ${aw}; TZ=Pacific/Auckland gpu_tuned_head_date; TZ=America/Los_Angeles gpu_tuned_head_date | head -1"
+check "head_date: a repo with no commit is a loud error" 1 "cannot read a valid HEAD commit date" "-" "${pre}; gpu_tuned_head_date '${al}/empty'"
+check "head_date: takes a directory argument" 0 "-" "^20261011$" "${pre}; cd /; gpu_tuned_head_date '${al}/w'"
+check "next_seq: nothing taken -> 0" 0 "-" "^0$" "${pre}; printf '' | gpu_tuned_next_seq 20261011"
+check "next_seq: the bare date taken -> 1" 0 "-" "^1$" "${pre}; printf '20261011\n' | gpu_tuned_next_seq 20261011"
+check "next_seq: bare and .1 taken -> 2" 0 "-" "^2$" "${pre}; printf '20261011\n20261011.1\n' | gpu_tuned_next_seq 20261011"
+check "next_seq: it is the LOWEST unused, so a gap is filled" 0 "-" "^1$" "${pre}; printf '20261011\n20261011.2\n' | gpu_tuned_next_seq 20261011"
+check "next_seq: other dates and prefixes do not count" 0 "-" "^0$" "${pre}; printf '20261010\n20261012.1\n202610111\n' | gpu_tuned_next_seq 20261011"
+check "next_seq: a bad date is refused" 1 "not a valid YYYYMMDD" "-" "${pre}; printf '' | gpu_tuned_next_seq 20261301"
+check "label_seq: bare date is 0, a suffix is its integer" 0 "-" "^0 3 12$" \
+  "${pre}; echo \"\$(gpu_tuned_label_seq 20261011) \$(gpu_tuned_label_seq 20261011.3) \$(gpu_tuned_label_seq 20261011.12)\""
+check "allocate: first build of the date is the bare date" 0 "-" "^20261011$" "${pre}; ${aw}; gpu_tuned_allocate_date_label"
+tag_remote "v0.29.1rc1.dev441+gabc.gb10.cu134.20261011"
+check "allocate: a published wheel tag for that date makes the next one .1" 0 "-" "^20261011\\.1$" "${pre}; ${aw}; gpu_tuned_allocate_date_label"
+tag_remote "v0.29.1rc1.dev442+gdef.gb10.cu134.20261011.1"
+check "allocate: ... and then .2" 0 "-" "^20261011\\.2$" "${pre}; ${aw}; gpu_tuned_allocate_date_label"
+tag_remote "v0.7.0+gb10.cu134.tuning.62"; tag_remote "v0.20261011.0-gb10-cu134"; tag_remote "v1.2.3"; tag_remote "v0.29+gb10.cu134.20261010"
+check "allocate: legacy counter tags, native tags, plain versions and other dates are ignored" 0 "-" "^20261011\\.2$" "${pre}; ${aw}; gpu_tuned_allocate_date_label"
+git -C "${al}/w" tag -d "v0.29.1rc1.dev441+gabc.gb10.cu134.20261011" >/dev/null 2>&1
+check "allocate: tags on the REMOTE count even when the local tag is gone" 0 "-" "^20261011\\.2$" "${pre}; ${aw}; gpu_tuned_allocate_date_label"
+git -C "${al}/w" tag "v9+gb10.cu134.20261011.2"
+check "allocate: a LOCAL-only tag counts too (an unpushed release in progress): .2 exists only locally, so .3" 0 "-" "^20261011\\.3$" "${pre}; ${aw}; gpu_tuned_allocate_date_label"
+git -C "${al}/w" tag -d "v9+gb10.cu134.20261011.2" >/dev/null 2>&1
+check "allocate: an unreachable remote is a loud error naming the override, never a guess" 1 "cannot read tags from remote 'nowhere'.*GPU_TUNED_LABEL_SEQ" "-" \
+  "${pre}; ${aw}; gpu_tuned_allocate_date_label . nowhere"
+check "allocate: GPU_TUNED_LABEL_SEQ works offline and skips the lookup" 0 "-" "^20261011\\.3$" \
+  "${pre}; ${aw}; GPU_TUNED_LABEL_SEQ=3 gpu_tuned_allocate_date_label . nowhere"
+check "allocate: GPU_TUNED_LABEL_SEQ=0 is the bare date, even when it is taken (dev builds)" 0 "-" "^20261011$" \
+  "${pre}; ${aw}; GPU_TUNED_LABEL_SEQ=0 gpu_tuned_allocate_date_label . nowhere"
+check "allocate: a non-canonical GPU_TUNED_LABEL_SEQ is refused" 1 "canonical integer" "-" \
+  "${pre}; ${aw}; GPU_TUNED_LABEL_SEQ=01 gpu_tuned_allocate_date_label"
+check "allocate: the result round-trips through local_version_dated and date_label" 0 "-" "^20261011\\.2$" \
+  "${pre}; ${aw}; L=\"\$(gpu_tuned_allocate_date_label)\"; V=\"\$(gpu_tuned_local_version_dated gb10 134 \"\$(gpu_tuned_head_date)\" \"\$(gpu_tuned_label_seq \"\$L\")\")\"; gpu_tuned_date_label \"0.1+\${V}\""
+rm -rf "${al}"
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: cuda tag then variant under cpp/build" 0 "-" "^/r/cpp/build/cu133/gb10$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"

@@ -39,6 +39,23 @@ e.g.  2.15.0+gb10.cu134.20261010        first build of that day
   preceding `.cu<cuda>.`; a bare digit match would also hit a public
   `2.15.0.dev20260911`), never with a hand-written regex.
 
+### Where the date and sequence come from
+
+`gpu_tuned_allocate_date_label [dir] [remote]` prints the label for a build of `HEAD`:
+
+- **Date:** `gpu_tuned_head_date`, the committer date of `HEAD` in **UTC** (`TZ=UTC` with git's
+  `--date=format-local`). Not the wall clock, and not `--date=format:`, which uses the commit's own
+  recorded timezone and is a day early for a commit made at 23:30 at UTC-7 (verified in the tests).
+- **Sequence:** the **lowest unused** integer for that date, among the date labels on tags in
+  `origin` (`git ls-remote --tags`, because a GitHub release is a git tag) and on local tags. It
+  is per date across the repo: a second build that day gets `.1` even for a different CUDA tag.
+  Legacy counter tags, native `v0.<date>.<seq>-...` tags, plain versions and other dates are ignored.
+- **If `origin` cannot be read it fails loudly** and names `GPU_TUNED_LABEL_SEQ=<n>`, which
+  chooses the sequence offline (a canonical integer; `0` is the bare date). A dev build that is
+  never published sets `GPU_TUNED_LABEL_SEQ=0` and does no lookup.
+- `gpu_tuned_label_seq <label>` returns the integer (0 for a bare date), so one value renders both
+  the wheel label (0 omitted) and the native tag (`v0.<date>.<seq>`, 0 written).
+
 ### Previous rule (2026-09-18 to 2026-10-11), still accepted
 
 `<public version>+<variant>.cu<cuda>.tuning.<N>`, `N` = `git rev-list --count
