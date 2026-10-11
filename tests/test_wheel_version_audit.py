@@ -1,5 +1,6 @@
 """Tests for wheel_version_audit.WheelVersionAudit."""
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -156,3 +157,33 @@ def test_dated_labels_sort_above_every_older_scheme_and_in_build_order() -> None
     assert versions == sorted(versions)
     assert Version("0.7.0+gb10") < Version(base + "20261010")
     assert Version(base + "20261010.2") < Version(base + "20261010.10")
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    "local",
+    [
+        "gb10.cu134.20261011",
+        "gb10.cu134.20261011.2",
+        "g97106f879.gb10.cu133.20261011",
+        "gb10.cu134.20260230",
+        "gb10.cu134.20261011.0",
+        "gb10.cu134.02061011",
+        "gb10.cu134.tuning.62",
+        "gb10.cu134.tuning.v34",
+        "cu133",
+        "gb10",
+        "gb10.cu134.2026101",
+    ],
+)
+def test_shell_wheel_label_check_agrees_with_audit_dated_class(local: str) -> None:
+    """gpu_tuned_check_wheel_label (bash) accepts exactly what DATED accepts."""
+    wheel = f"torch-2.15.0+{local}-cp314-cp314-linux_aarch64.whl"
+    script = (
+        f"source '{REPO_ROOT}/tuned-common.sh'; "
+        f"gpu_tuned_check_wheel_label '{wheel}'"
+    )
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert (result.returncode == 0) == (WheelVersionAudit.classify(local) == DATED)

@@ -202,6 +202,26 @@ check "clean_tree: a staged change is refused too" 1 "dirty tree" "-" \
   "${pre}; ${ingate}; echo 3 >> tracked; git add tracked; rc=0; gpu_tuned_require_clean_tree || rc=\$?; git reset -q --hard; exit \$rc"
 check "clean_tree: outside a git checkout is refused" 1 "not inside a git checkout" "-" \
   "${pre}; cd /; gpu_tuned_require_clean_tree"
+# --- publish gate: wheel version label ---
+w="torch-2.15.0%s-cp314-cp314-linux_aarch64.whl"
+wl() { printf "$w" "$1"; }
+check "wheel_label: a date label passes" 0 "-" "-" "${pre}; gpu_tuned_check_wheel_label /x/$(wl +gb10.cu134.20261011)"
+check "wheel_label: a date label with a sequence passes" 0 "-" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20261011.2)"
+check "wheel_label: an scm segment before the variant passes" 0 "-" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +g97106f879.gb10.cu133.20261011)"
+check "wheel_label: no local version is refused" 1 "no local version label" "-" "${pre}; gpu_tuned_check_wheel_label torch-2.15.0-cp314-cp314-linux_aarch64.whl"
+check "wheel_label: platform-only +cu133 is refused" 1 "is not <variant>" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +cu133)"
+check "wheel_label: the counter is refused by default" 1 "is not <variant>" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.tuning.62)"
+check "wheel_label: the counter passes with the override, loudly" 0 "retired tuning.N counter" "-" "${pre}; GPU_TUNED_ALLOW_COUNTER_LABEL=1 gpu_tuned_check_wheel_label $(wl +gb10.cu134.tuning.62)"
+check "wheel_label: legacy tuning.vN is refused even with the override" 1 "is not <variant>" "-" "${pre}; GPU_TUNED_ALLOW_COUNTER_LABEL=1 gpu_tuned_check_wheel_label $(wl +gb10.cu134.tuning.v34)"
+check "wheel_label: an impossible calendar date is refused" 1 "not a real calendar date" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20260230)"
+check "wheel_label: a .0 sequence is refused" 1 "is not <variant>" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20261011.0)"
+check "wheel_label: a non-wheel name is refused" 1 "not a wheel file name" "-" "${pre}; gpu_tuned_check_wheel_label model.tar.gz"
+check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \
+  "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r tag title notes 'torch-2.15.0-cp314-cp314-linux_aarch64.whl#w' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"
+check "publish_release: a good wheel label reaches gh, label suffix ignored" 0 "-" "OK: published" \
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r tag title notes '$(wl +gb10.cu134.20261011)#torch'; grep -q 'release create tag' '${gate}/gh.log'"
+check "publish_release: a non-wheel asset is not label-checked" 0 "-" "OK: published" \
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r tag title notes 'llama-cpp-1-gb10.tar.gz'"
 check "publish_release: a dirty tree is refused before gh is ever called" 1 "dirty tree" "-" \
   "${pre}; ${ingate}; echo 2 >> tracked; rc=0; gpu_tuned_publish_release o/r tag title notes asset || rc=\$?; git checkout -q tracked; [ ! -s '${gate}/gh.log' ] && exit \$rc"
 check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r@tag" \

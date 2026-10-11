@@ -70,6 +70,13 @@ wheel as ours) that is meaningful at a glance. Ordering is verified in
 `tests/test_wheel_version_audit.py`: every date label sorts above every `tuning.N`,
 `tuning.vN` and the bare `+gb10`, and `<date>.2 < <date>.10`.
 
+**Publish-time check (2026-10-11).** `gpu_tuned_publish_release` runs `gpu_tuned_check_wheel_label`
+on every `.whl` asset before `gh` is called, and refuses unless the file name carries the date
+form. The counter form is accepted only with `GPU_TUNED_ALLOW_COUNTER_LABEL=1`, with a warning,
+for a repo not yet migrated; no label, `+cu133`, and `tuning.vN` are always refused. The check
+is plain bash, because consumers vendor only `common.sh`, not `tools/`; a pytest case runs it
+beside the audit's `DATED` class so the two cannot drift. It reads the file name only.
+
 ## Why the public version and the distribution name stay upstream's
 
 Considered and rejected 2026-10-11: giving tuned artifacts their own version space

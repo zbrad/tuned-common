@@ -819,6 +819,40 @@ gpu_tuned_require_clean_tree() {
     echo "OK: clean tracked tree at ${top} ($(git rev-parse --short HEAD 2>/dev/null || echo '?'))"
 }
 
+# gpu_tuned_check_wheel_label <wheel-path> -- refuses (returns 1) unless the wheel's file name
+# carries a date-form local version: <public>+[<scm>.]<variant>.cu<cuda>.<YYYYMMDD>[.<seq>] with a
+# real calendar date and no ".0" sequence (docs/VERSIONING.md). Reads the file NAME only, so it
+# runs before anything is uploaded. The same rule as tools/wheel_version_audit.py's DATED class
+# (tests/test_wheel_version_audit.py cross-checks the two). GPU_TUNED_ALLOW_COUNTER_LABEL=1 also
+# accepts the retired <variant>.cu<cuda>.tuning.<N> counter, for a repo not yet migrated; it says
+# so loudly. Anything else (no label, platform-only +cu133, legacy tuning.vN) is refused.
+gpu_tuned_check_wheel_label() {
+    local name version local_part date
+    name="$(basename "${1:-}")"
+    if [[ ! "${name}" =~ ^[A-Za-z0-9_.]+-([^-]+)-.+\.whl$ ]]; then
+        echo "ERROR: gpu_tuned_check_wheel_label: '${name}' is not a wheel file name." >&2
+        return 1
+    fi
+    version="${BASH_REMATCH[1]}"
+    if [[ "${version}" != *+* ]]; then
+        echo "ERROR: gpu_tuned_check_wheel_label: ${name} has no local version label (+<variant>.cu<cuda>.<YYYYMMDD>); refusing to publish an unlabelled build." >&2
+        return 1
+    fi
+    local_part="${version#*+}"
+    if [[ "${local_part}" =~ ^([a-z][a-z0-9]*\.)*[a-z][a-z0-9]*\.cu[0-9]+\.([1-9][0-9]{7})(\.[1-9][0-9]*)?$ ]]; then
+        date="${BASH_REMATCH[2]}"
+        if gpu_tuned_valid_date "${date}"; then return 0; fi
+        echo "ERROR: gpu_tuned_check_wheel_label: ${name} carries ${date}, which is not a real calendar date." >&2
+        return 1
+    fi
+    if [[ "${GPU_TUNED_ALLOW_COUNTER_LABEL:-}" == 1 && "${local_part}" =~ ^([a-z][a-z0-9]*\.)*[a-z][a-z0-9]*\.cu[0-9]+\.tuning\.(0|[1-9][0-9]*)$ ]]; then
+        echo "WARNING: gpu_tuned_check_wheel_label: ${name} uses the retired tuning.N counter label (GPU_TUNED_ALLOW_COUNTER_LABEL=1); migrate this repo to the date form." >&2
+        return 0
+    fi
+    echo "ERROR: gpu_tuned_check_wheel_label: ${name} local version '${local_part}' is not <variant>.cu<cuda>.<YYYYMMDD>[.<seq>] (docs/VERSIONING.md)." >&2
+    return 1
+}
+
 # gpu_tuned_publish_release <owner/repo> <tag> <title> <notes-or-@notes-file>
 # [asset-spec ...] — publish a GitHub release via `gh release create`,
 # always targeting the "tuned-builds" branch (every consumer in this fleet
@@ -843,6 +877,13 @@ gpu_tuned_publish_release() {
     local repo="$1" tag="$2" title="$3" notes="$4"
     shift 4
     gpu_tuned_require_clean_tree || return 1
+    local asset path
+    for asset in "$@"; do
+        path="${asset%%#*}"
+        if [[ "${path}" == *.whl ]]; then
+            gpu_tuned_check_wheel_label "${path}" || return 1
+        fi
+    done
     if [[ $# -eq 0 ]]; then
         echo "ERROR: gpu_tuned_publish_release: no assets given (at least one is required)." >&2
         return 1
