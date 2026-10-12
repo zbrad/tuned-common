@@ -262,6 +262,10 @@ check "smoke: a wheel built for another python is refused up front" 1 "is built 
   "${smoke}; gpu_tuned_smoke_wheel '${toy}/toyabi-1.0+gb10.cu134.20261011-cp27-cp27mu-manylinux1_x86_64.whl' toyabi toyabi"
 check "smoke: a stamp library that is not in the wheel is refused" 1 "stamp library libnope.so not found" "-" \
   "${smoke}; gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke some_section libnope.so"
+check "smoke: a pin that the wheel satisfies is installed and named" 0 "-" "pinned: toysmoke==1.0\\+gb10.cu134.20261011" \
+  "${smoke}; GPU_TUNED_SMOKE_PIN='toysmoke==1.0+gb10.cu134.20261011' gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke"
+check "smoke: a pin that nothing can satisfy fails the install" 1 "pip could not install" "-" \
+  "${smoke}; GPU_TUNED_SMOKE_PIN='toysmoke==9.9' gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke"
 check "smoke: a missing wheel and missing arguments are refused" 1 "usage" "-" "${pre}; gpu_tuned_smoke_wheel"
 check "smoke: the throwaway venv is removed on success" 0 "-" "^OK$" \
   "${smoke}; mkdir '${toy}/tmp'; TMPDIR='${toy}/tmp' gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke >/dev/null && [ -z \"\$(ls -A '${toy}/tmp')\" ] && echo OK"

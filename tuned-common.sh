@@ -919,8 +919,18 @@ gpu_tuned_smoke_wheel() {
     if [[ -n "${GPU_TUNED_SMOKE_FIND_LINKS:-}" ]]; then
         pip_args+=(--no-index --find-links "${GPU_TUNED_SMOKE_FIND_LINKS}" --find-links "$(dirname "${wheel}")")
     fi
-    echo "smoke: installing ${base} into a clean venv"
-    if ! env -u PYTHONPATH -u PYTHONHOME "${venv}/bin/python" -m pip "${pip_args[@]}" "${wheel}" >"${work}/pip.log" 2>&1; then
+    # GPU_TUNED_SMOKE_PIN="torch==2.15.0+gb10.cu134.20261012" (space-separated requirements) pins
+    # dependencies the wheel only names loosely (torch>=...), and GPU_TUNED_SMOKE_EXTRA_LINKS=<dir>
+    # adds a directory holding those exact wheels while the index stays available for everything
+    # else. Without them a loose torch requirement resolves to stock torch from PyPI and the smoke
+    # test would exercise a pairing nobody ships.
+    local pins=()
+    if [[ -n "${GPU_TUNED_SMOKE_PIN:-}" ]]; then
+        read -r -a pins <<< "${GPU_TUNED_SMOKE_PIN}"
+    fi
+    [[ -z "${GPU_TUNED_SMOKE_EXTRA_LINKS:-}" ]] || pip_args+=(--find-links "${GPU_TUNED_SMOKE_EXTRA_LINKS}")
+    echo "smoke: installing ${base} into a clean venv${pins[*]:+ (pinned: ${pins[*]})}"
+    if ! env -u PYTHONPATH -u PYTHONHOME "${venv}/bin/python" -m pip "${pip_args[@]}" "${wheel}" "${pins[@]}" >"${work}/pip.log" 2>&1; then
         echo "ERROR: ${fn}: pip could not install ${base}:" >&2
         tail -15 "${work}/pip.log" >&2
         rm -rf "${work}"
