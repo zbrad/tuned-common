@@ -524,20 +524,40 @@ rm -rf "${co}"
 fi
 
 # --- CUDA-version-specific output dirs ---
-check "out_dir build: cuda tag then variant under cpp/build" 0 "-" "^/r/cpp/build/cu133/gb10$" \
+check "out_dir build: one fixed cmake dir per toolkit under tuned/build/<cuda>" 0 "-" "^/r/tuned/build/cu133/cmake$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"
-check "out_dir build: two toolkits never share a dir" 0 "-" "^/r/cpp/build/cu134/gb10$" \
+check "out_dir build: two toolkits never share a dir" 0 "-" "^/r/tuned/build/cu134/cmake$" \
   "${pre}; gpu_tuned_out_dir build /r cu134 gb10"
-check "out_dir dist: accepts the shared pseudo-variant" 0 "-" "^/r/dist/cu133/shared$" \
+check "out_dir build: there is no variant level (same path for any variant)" 0 "-" "^/r/tuned/build/cu133/cmake$" \
+  "${pre}; gpu_tuned_out_dir build /r cu133 rtx40"
+check "out_dir dist: tuned/build/<cuda>/dist" 0 "-" "^/r/tuned/build/cu133/dist$" \
+  "${pre}; gpu_tuned_out_dir dist /r cu133 gb10"
+check "out_dir dist: the shared pseudo-variant is a SIBLING of dist, never inside it" 0 "-" "^/r/tuned/build/cu133/dist-shared$" \
   "${pre}; gpu_tuned_out_dir dist /r cu133 shared"
-check "out_dir releases: cuda tag only, variant ignored" 0 "-" "^/r/tuned/releases/cu133$" \
+check "out_dir dist: shared is not a path prefix of dist (a rm -rf of dist cannot delete it)" 0 "-" "^OK$" \
+  "${pre}; a=\$(gpu_tuned_out_dir dist /r cu133 gb10); b=\$(gpu_tuned_out_dir dist /r cu133 shared); case \"\$b/\" in \"\$a\"/*) echo BAD;; *) echo OK;; esac"
+check "out_dir releases: generated release inputs under the toolkit tree" 0 "-" "^/r/tuned/build/cu133/releases$" \
   "${pre}; gpu_tuned_out_dir releases /r cu133 gb10"
 check "out_dir: bad cuda tag fails" 1 "not of the form cu<digits>" "-" \
   "${pre}; gpu_tuned_out_dir build /r 13.3 gb10"
-check "out_dir build: missing variant fails" 1 "needs a variant" "-" \
+check "out_dir build: the variant is optional now" 0 "-" "^/r/tuned/build/cu133/cmake$" \
   "${pre}; gpu_tuned_out_dir build /r cu133"
+check "out_dir: a malformed variant fails" 1 "malformed" "-" \
+  "${pre}; gpu_tuned_out_dir build /r cu133 'Bad Variant'"
 check "out_dir: unknown kind fails" 1 "unknown kind 'logs'" "-" \
   "${pre}; gpu_tuned_out_dir logs /r cu133 gb10"
+ct="$(mktemp -d)"
+check "claim_toolkit_tree: first claim creates the tree and records the variant" 0 "-" "^gb10$" \
+  "${pre}; gpu_tuned_claim_toolkit_tree '${ct}' cu134 gb10 && cat '${ct}/tuned/build/cu134/.variant'"
+check "claim_toolkit_tree: the same variant again is fine" 0 "-" "-" \
+  "${pre}; gpu_tuned_claim_toolkit_tree '${ct}' cu134 gb10"
+check "claim_toolkit_tree: another variant on the same toolkit tree is refused" 1 "was built for variant 'gb10', not 'rtx40'" "-" \
+  "${pre}; gpu_tuned_claim_toolkit_tree '${ct}' cu134 rtx40"
+check "claim_toolkit_tree: another toolkit gets its own tree and owner" 0 "-" "^rtx40$" \
+  "${pre}; gpu_tuned_claim_toolkit_tree '${ct}' cu133 rtx40 && cat '${ct}/tuned/build/cu133/.variant'"
+check "claim_toolkit_tree: a variant is required" 1 "a variant is required" "-" \
+  "${pre}; gpu_tuned_claim_toolkit_tree '${ct}' cu134 ''"
+rm -rf "${ct}"
 check "cuda_subdir: base, tag and variant" 0 "-" "^/r/_build/cu134/gb10$" \
   "${pre}; gpu_tuned_cuda_subdir /r/_build cu134 gb10"
 check "cuda_subdir: variant is optional" 0 "-" "^/r/_stage/cu133$" \

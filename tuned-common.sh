@@ -753,33 +753,55 @@ gpu_tuned_cuda_subdir() {
     fi
 }
 
-# gpu_tuned_out_dir <kind> <repo-root> <cuda-tag> [<variant>] — the
-# CUDA-version-specific output directory for <kind> in the raft/cuvs layout:
-#   build    -> <repo-root>/cpp/build/<cuda-tag>/<variant>
-#   dist     -> <repo-root>/dist/<cuda-tag>/<variant>   (variant may be "shared")
-#   releases -> <repo-root>/tuned/releases/<cuda-tag>   (variant not used)
-# Repos with a different layout (faiss) call gpu_tuned_cuda_subdir directly.
-# Fails on an unknown kind, or a missing variant for build/dist.
+# gpu_tuned_out_dir <kind> <repo-root> <cuda-tag> [<variant>] — an output directory in the
+# per-toolkit tree, tuned/build/<cuda-tag>/ (gitignored via build/), the layout raft and cuvs use
+# (changed 2026-10-12 from cpp/build/<cuda>/<variant> and dist/<cuda>/<variant>):
+#   build    -> <repo-root>/tuned/build/<cuda-tag>/cmake      the one fixed compile path per toolkit
+#   dist     -> <repo-root>/tuned/build/<cuda-tag>/dist       built wheels/tarballs
+#   dist shared -> <repo-root>/tuned/build/<cuda-tag>/dist-shared   a SIBLING of dist, never inside
+#                   it: wheel.sh clears dist before copying the shared wheels in from here
+#   releases -> <repo-root>/tuned/build/<cuda-tag>/releases   generated release inputs (checksums,
+#                   test logs); the tracked RELEASE_NOTES_*.md stay in tuned/releases/
+# There is no variant level: two variants never share a build tree (gpu_tuned_claim_toolkit_tree
+# refuses it). The fixed path is what lets ccache hit and keeps ninja's log for timings. <variant>
+# is accepted for source compatibility and only validated; "shared" selects dist-shared. Repos with
+# a different layout (faiss) call gpu_tuned_cuda_subdir directly. Fails on an unknown kind or a
+# malformed tag or variant.
 gpu_tuned_out_dir() {
-    local kind="$1" root="$2" cuda_tag="$3" variant="${4:-}"
+    local kind="$1" root="$2" cuda_tag="$3" variant="${4:-}" base
+    base="$(gpu_tuned_cuda_subdir "${root}/tuned/build" "${cuda_tag}" "${variant}")" || return 1
+    base="${base%/"${variant}"}"
     case "${kind}" in
-        build|dist)
-            if [[ -z "${variant}" ]]; then
-                echo "ERROR: gpu_tuned_out_dir: '${kind}' needs a variant (got '${variant}')." >&2
-                return 1
-            fi
-            if [[ "${kind}" == "build" ]]; then
-                gpu_tuned_cuda_subdir "${root}/cpp/build" "${cuda_tag}" "${variant}"
-            else
-                gpu_tuned_cuda_subdir "${root}/dist" "${cuda_tag}" "${variant}"
-            fi
+        build) echo "${base}/cmake" ;;
+        dist)
+            if [[ "${variant}" == shared ]]; then echo "${base}/dist-shared"; else echo "${base}/dist"; fi
             ;;
-        releases) gpu_tuned_cuda_subdir "${root}/tuned/releases" "${cuda_tag}" ;;
+        releases) echo "${base}/releases" ;;
         *)
             echo "ERROR: gpu_tuned_out_dir: unknown kind '${kind}' (expected build, dist or releases)." >&2
             return 1
             ;;
     esac
+}
+
+# gpu_tuned_claim_toolkit_tree <repo-root> <cuda-tag> <variant> — create tuned/build/<cuda-tag>/ and
+# record which variant owns it in .variant. With no variant level in the layout, a tree last used
+# by another variant would silently mix their objects; this refuses instead (a separate checkout,
+# or a different machine, is the way to build another variant). Idempotent for the same variant.
+gpu_tuned_claim_toolkit_tree() {
+    local root="$1" cuda_tag="$2" variant="$3" dir owner
+    [[ -n "${variant}" ]] || { echo "ERROR: gpu_tuned_claim_toolkit_tree: a variant is required." >&2; return 1; }
+    dir="$(gpu_tuned_cuda_subdir "${root}/tuned/build" "${cuda_tag}")" || return 1
+    mkdir -p "${dir}"
+    if [[ -f "${dir}/.variant" ]]; then
+        owner="$(cat "${dir}/.variant")"
+        if [[ "${owner}" != "${variant}" ]]; then
+            echo "ERROR: gpu_tuned_claim_toolkit_tree: ${dir} was built for variant '${owner}', not '${variant}'. Use a separate checkout for another variant." >&2
+            return 1
+        fi
+    else
+        printf '%s\n' "${variant}" > "${dir}/.variant"
+    fi
 }
 
 # gpu_tuned_wheel_version <wheel-path> <pkg-name-prefix> — extracts the
