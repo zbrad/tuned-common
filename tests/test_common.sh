@@ -600,6 +600,16 @@ check "load_toolkit: the default states the full list and the reason" 0 \
 check "load_toolkit: the default message says how to choose another" 0 "set CUDA_TAG" "-" "${ld}"
 check "load_toolkit: a per-variant file is not counted as a toolkit in the list" 0 "-" "-" \
   "out=\"\$(${ld} 2>&1)\"; [[ \"\${out}\" != *gb10-cu139* ]]"
+check "load_toolkit: toolkits/DEFAULT names the default, not the highest" 0 "using cu139: none was specified, so the default named in toolkits/DEFAULT" "^cu139 13\\.9$" \
+  "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; ${ld}; echo \"\${CUDA_TAG} \${CUDA_VER}\"; rm -f '${tk}/dflt/toolkits/DEFAULT'"
+check "load_toolkit: the DEFAULT message still says the highest defined" 0 "highest defined is cu1310" "-" \
+  "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; ${ld}; rm -f '${tk}/dflt/toolkits/DEFAULT'"
+check "load_toolkit: a DEFAULT that names a missing toolkit is an error" 1 "DEFAULT names 'cu000'" "-" \
+  "printf 'cu000\\n' > '${tk}/dflt/toolkits/DEFAULT'; rc=0; ${ld} || rc=\$?; rm -f '${tk}/dflt/toolkits/DEFAULT'; exit \$rc"
+check "load_toolkit: an explicit id wins over DEFAULT" 0 "-" "^cu1310$" \
+  "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; ${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${tk}/dflt' gb10 cu1310; echo \"\${CUDA_TAG}\"; rm -f '${tk}/dflt/toolkits/DEFAULT'"
+check "load_toolkit: the real data dir defaults to cu133 and defines cu134" 0 "using cu133: none was specified" "-" \
+  "${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}' gb10; [ -f '${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/toolkits/cu134.env' ]"
 check "load_toolkit: no id and no toolkit files is an error" 1 "none defined" "-" \
   "${pre}; mkdir -p '${tk}/empty/toolkits'; gpu_tuned_load_toolkit '${tk}/empty' gb10"
 check "load_toolkit: a <variant>-<toolkit>.env overrides the base file" 0 "-" "^98\\.0$" \

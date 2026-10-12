@@ -230,9 +230,21 @@ gpu_tuned_load_toolkit() {
             return 1
         fi
         echo "[toolkit] available:${listing}" >&2
-        echo "[toolkit] using ${best} (CUDA ${best_v}): none was specified, so the highest defined toolkit is used." >&2
-        echo "[toolkit] to choose another, set CUDA_TAG (e.g. CUDA_TAG=${best}) or CUDA_VER." >&2
-        tk="${best}"
+        local dflt=""
+        if [[ -f "${data_dir}/toolkits/DEFAULT" ]]; then
+            dflt="$(tr -d '[:space:]' < "${data_dir}/toolkits/DEFAULT")"
+            if [[ ! -f "${data_dir}/toolkits/${dflt}.env" ]]; then
+                echo "ERROR: gpu_tuned_load_toolkit: ${data_dir}/toolkits/DEFAULT names '${dflt}', which has no toolkits/${dflt}.env." >&2
+                return 1
+            fi
+            echo "[toolkit] using ${dflt}: none was specified, so the default named in toolkits/DEFAULT is used (highest defined is ${best})." >&2
+            echo "[toolkit] to choose another, set CUDA_TAG (e.g. CUDA_TAG=${best}) or CUDA_VER." >&2
+            tk="${dflt}"
+        else
+            echo "[toolkit] using ${best} (CUDA ${best_v}): none was specified, so the highest defined toolkit is used." >&2
+            echo "[toolkit] to choose another, set CUDA_TAG (e.g. CUDA_TAG=${best}) or CUDA_VER." >&2
+            tk="${best}"
+        fi
     fi
     local base="${data_dir}/toolkits/${tk}.env"
     local over="${data_dir}/toolkits/${variant}-${tk}.env"

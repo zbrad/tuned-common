@@ -94,6 +94,13 @@ See `tuned-common.sh` itself for full doc comments on each.
   `CUDA_HOME` (never the unversioned `/usr/local/cuda` symlink), the `nvcc` release and the
   library versions the toolkit is built against. `toolkits/<variant>-<id>.env` overrides
   keys where the stack differs per variant. Record only values read from a real install.
+  `toolkits/DEFAULT` (one line, a toolkit id) is the toolkit used when a build names none;
+  without it the highest defined is used. It is `cu133` while `cu134` is defined, so adding a
+  toolkit does not change what an existing consumer builds with when it re-syncs. A repo whose
+  vendored `common.sh` or `sync-common.sh` predates `DEFAULT` ignores it and would pick the
+  highest: set `CUDA_TAG` explicitly there until it is re-synced. `cu134` has no
+  `TOOLKIT_NCCL_VERSION` (the installed libnccl2 is the 13.3 build), so do not bundle libnccl2
+  from a `cu134` build.
 
 Each repo adds its own settings in `tuned/repo.env`, loaded last by `gpu_tuned_load_repo_env`.
 It is tracked (a release must be reproducible) and may only add repo-specific keys: any attempt
