@@ -969,7 +969,12 @@ PY
 
     local problems=()
     [[ "${dists}" == "${version}" ]] || problems+=("installed ${dist} versions are '${dists}', expected exactly '${version}'")
-    [[ "${modver}" == "${version}" ]] || problems+=("${imp}.__version__ is '${modver}', expected '${version}'")
+    # A package whose __version__ is a static string (no local label) is checked against the base
+    # version only, with GPU_TUNED_SMOKE_MODULE_VERSION=base; the installed distribution's version
+    # (checked above) still has to match the full label exactly.
+    local want_modver="${version}"
+    [[ "${GPU_TUNED_SMOKE_MODULE_VERSION:-}" == base ]] && want_modver="${version%%+*}"
+    [[ "${modver}" == "${want_modver}" ]] || problems+=("${imp}.__version__ is '${modver}', expected '${want_modver}'")
     [[ "${modfile}" == "${venv}"/* ]] || problems+=("${imp} loaded from '${modfile}', not from inside the clean venv")
     if [[ -n "${section}" && -n "${stamp_lib}" ]]; then
         local lib
@@ -1408,6 +1413,53 @@ gpu_tuned_build_local_version() {
     cuda="$(gpu_tuned_nvcc_compact)" || return 1
     label="$(gpu_tuned_allocate_date_label "${dir}" "${remote}")" || return 1
     gpu_tuned_local_version_dated "${variant}" "${cuda}" "${label%%.*}" "$(gpu_tuned_label_seq "${label}")"
+}
+
+# gpu_tuned_ninja_timing <ninja-log> <offset-bytes> <out-tsv> [<strip-prefix>] -- per-target build
+# timings from ninja's own log, for builds that run CMake+Ninja (pytorch, vllm, flash-attention...).
+# Take the log's size (wc -c) BEFORE the build and pass it as <offset-bytes>: ninja appends to the
+# log across runs, so only the lines after the offset belong to this build. Writes one line per
+# target built in this run to <out-tsv>, in the same shape tuned/build.sh in zbrad/nccl writes:
+#   <seconds>\t<kind>\t<target>\t0       kind = nvcc (.cu.o), cxx (.cc/.cpp/.c .o), link (.so/.a), other
+# and prints "Timing: <n> units, wall <s>s, summed unit time <s>s" plus the 10 slowest. Ninja records
+# a target once per run, so a target rebuilt twice in one run cannot occur; "wall" is the span from
+# the first start to the last end in the log. Fails (and writes nothing) if the log is missing, is
+# shorter than the offset, or holds no new targets (a no-op build): say so, never report zeros.
+gpu_tuned_ninja_timing() {
+    local log="${1:-}" offset="${2:-}" out="${3:-}" strip="${4:-}" size
+    if [[ -z "${log}" || -z "${out}" || ! "${offset}" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: gpu_tuned_ninja_timing: usage: <ninja-log> <offset-bytes> <out-tsv> [<strip-prefix>]" >&2
+        return 1
+    fi
+    [[ -f "${log}" ]] || { echo "ERROR: gpu_tuned_ninja_timing: no ninja log at ${log}" >&2; return 1; }
+    size="$(wc -c < "${log}")"
+    if [[ "${size}" -lt "${offset}" ]]; then
+        echo "ERROR: gpu_tuned_ninja_timing: ${log} is smaller (${size}) than the recorded offset (${offset}); it was replaced during the build." >&2
+        return 1
+    fi
+    tail -c +"$((offset + 1))" "${log}" | awk -F'\t' -v strip="${strip}" '
+        /^#/ || NF < 4 { next }
+        {
+            s = $1 + 0; e = $2 + 0; name = $4
+            if (strip != "" && index(name, strip) == 1) name = substr(name, length(strip) + 1)
+            kind = "other"
+            if (name ~ /\.cu\.o$/) kind = "nvcc"
+            else if (name ~ /\.(cc|cpp|cxx|c)\.o$/) kind = "cxx"
+            else if (name ~ /\.(so|a)(\.[0-9.]+)?$/) kind = "link"
+            printf "%.1f\t%s\t%s\t0\n", (e - s) / 1000, kind, name
+        }' > "${out}.tmp"
+    if [[ ! -s "${out}.tmp" ]]; then
+        rm -f "${out}.tmp"
+        echo "ERROR: gpu_tuned_ninja_timing: no targets were built after offset ${offset} in ${log} (a no-op build, or the wrong log)." >&2
+        return 1
+    fi
+    mv "${out}.tmp" "${out}"
+    tail -c +"$((offset + 1))" "${log}" | awk -F'\t' '
+        /^#/ || NF < 4 { next }
+        { n++; sum += ($2 - $1) / 1000; if (min == "" || $1 < min) min = $1; if ($2 > max) max = $2 }
+        END { printf "Timing: %d units, wall %.0fs, summed unit time %.0fs\n", n, (max - min) / 1000, sum }'
+    echo "Slowest units:"
+    sort -t$'\t' -k1,1 -rn "${out}" | head -10 | awk -F'\t' '{ printf "  %7.1fs  %-6s %s\n", $1, $2, $3 }'
 }
 
 # ---- unique shared-object identities -------------------------------------------------

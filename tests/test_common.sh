@@ -238,6 +238,7 @@ make("toydrift", "1.0+gb10.cu134.20261011", "1.0+gb10.cu134.20261010")
 make("toyold", "1.0+gb10.cu134.tuning.62", "1.0+gb10.cu134.tuning.62")
 make("toyabi", "1.0+gb10.cu134.20261011", "1.0+gb10.cu134.20261011", tag="cp27-cp27mu-manylinux1_x86_64")
 make("toymeta", "1.0+gb10.cu134.20261011", "1.0+gb10.cu134.20261011", metaver="1.0+gb10.cu134.20261010")
+make("toystatic", "1.0+gb10.cu134.20261011", "1.0")
 PY
 mkdir "${toy}/none"
 smoke="${pre}; export GPU_TUNED_SMOKE_FIND_LINKS='${toy}/none'"
@@ -247,6 +248,12 @@ check "smoke: a module whose __version__ differs from the file name is refused" 
   "${smoke}; gpu_tuned_smoke_wheel '${toy}/toydrift-1.0+gb10.cu134.20261011-py3-none-any.whl' toydrift toydrift"
 check "smoke: installed metadata that disagrees with the file name is refused" 1 "installed toymeta versions are '1.0\\+gb10.cu134.20261010'" "-" \
   "${smoke}; gpu_tuned_smoke_wheel '${toy}/toymeta-1.0+gb10.cu134.20261011-py3-none-any.whl' toymeta toymeta"
+check "smoke: a static __version__ without the local label is refused by default" 1 "__version__ is '1.0', expected '1.0\\+gb10.cu134.20261011'" "-" \
+  "${smoke}; gpu_tuned_smoke_wheel '${toy}/toystatic-1.0+gb10.cu134.20261011-py3-none-any.whl' toystatic toystatic"
+check "smoke: GPU_TUNED_SMOKE_MODULE_VERSION=base accepts the base version" 0 "-" "OK: gpu_tuned_smoke_wheel" \
+  "${smoke}; GPU_TUNED_SMOKE_MODULE_VERSION=base gpu_tuned_smoke_wheel '${toy}/toystatic-1.0+gb10.cu134.20261011-py3-none-any.whl' toystatic toystatic"
+check "smoke: base mode still refuses a module on a different base version" 1 "__version__ is '1.0\\+gb10.cu134.20261010', expected '1.0'" "-" \
+  "${smoke}; GPU_TUNED_SMOKE_MODULE_VERSION=base gpu_tuned_smoke_wheel '${toy}/toydrift-1.0+gb10.cu134.20261011-py3-none-any.whl' toydrift toydrift"
 check "smoke: the retired counter label is refused before any install" 1 "is not <variant>" "-" \
   "${smoke}; gpu_tuned_smoke_wheel '${toy}/toyold-1.0+gb10.cu134.tuning.62-py3-none-any.whl' toyold toyold"
 check "smoke: skipping the label check is printed as SKIP" 0 "-" "SKIP: gpu_tuned_smoke_wheel: version label check" \
@@ -259,6 +266,23 @@ check "smoke: a missing wheel and missing arguments are refused" 1 "usage" "-" "
 check "smoke: the throwaway venv is removed on success" 0 "-" "^OK$" \
   "${smoke}; mkdir '${toy}/tmp'; TMPDIR='${toy}/tmp' gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke >/dev/null && [ -z \"\$(ls -A '${toy}/tmp')\" ] && echo OK"
 rm -rf "${toy}"
+# --- ninja timing (gpu_tuned_ninja_timing) ---
+nt="$(mktemp -d)"
+printf '# ninja log v7\n0\t100\t1\told.cu.o\th\n' > "${nt}/log"
+nt_off="$(wc -c < "${nt}/log")"
+printf '10\t5010\t2\tCMakeFiles/x.dir/a.cu.o\th1\n20\t1020\t3\tCMakeFiles/x.dir/b.cpp.o\th2\n5020\t6020\t4\t_x.abi3.so\th3\n' >> "${nt}/log"
+check "ninja_timing: only targets after the offset are reported, with their kind" 0 "-" "^Timing: 3 units, wall 6s, summed unit time 7s$" \
+  "${pre}; gpu_tuned_ninja_timing '${nt}/log' ${nt_off} '${nt}/out.tsv' | grep '^Timing'"
+check "ninja_timing: the TSV has seconds, kind, name, status; the strip prefix is removed" 0 "-" "^5.0	nvcc	x.dir/a.cu.o	0$" \
+  "${pre}; gpu_tuned_ninja_timing '${nt}/log' ${nt_off} '${nt}/out.tsv' CMakeFiles/ >/dev/null; sed -n 1p '${nt}/out.tsv'"
+check "ninja_timing: an earlier run's targets (before the offset) are not counted" 0 "-" "^3$" \
+  "${pre}; gpu_tuned_ninja_timing '${nt}/log' ${nt_off} '${nt}/out.tsv' >/dev/null; wc -l < '${nt}/out.tsv' | tr -d ' '"
+check "ninja_timing: a no-op build (nothing after the offset) fails and writes no file" 1 "no targets were built" "-" \
+  "${pre}; rm -f '${nt}/noop.tsv'; rc=0; gpu_tuned_ninja_timing '${nt}/log' \$(wc -c < '${nt}/log') '${nt}/noop.tsv' || rc=\$?; [ ! -e '${nt}/noop.tsv' ] && exit \$rc"
+check "ninja_timing: a log shorter than the offset (replaced during the build) fails" 1 "smaller" "-" \
+  "${pre}; gpu_tuned_ninja_timing '${nt}/log' 99999 '${nt}/x.tsv'"
+check "ninja_timing: a missing log fails" 1 "no ninja log" "-" "${pre}; gpu_tuned_ninja_timing '${nt}/none' 0 '${nt}/x.tsv'"
+rm -rf "${nt}"
 check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \
   "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r tag title notes 'torch-2.15.0-cp314-cp314-linux_aarch64.whl#w' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"
 check "publish_release: a good wheel label reaches gh, label suffix ignored" 0 "-" "OK: published" \
