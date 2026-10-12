@@ -300,6 +300,21 @@ check "date_label: a .0 sequence is not a label" 0 "-" "^\\[\\]$" \
   "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.20261010.0')\"; echo \"[\${X}]\""
 check "date_label: an impossible date is not a label" 0 "-" "^\\[\\]$" \
   "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.20260230')\"; echo \"[\${X}]\""
+check "date_label: a native tag with seq 0 reads as the bare date" 0 "-" "^20261011$" "${pre}; gpu_tuned_date_label 'v0.20261011.0-gb10-cu134'"
+check "date_label: a native tag with seq 3 reads date.seq" 0 "-" "^20261011\\.3$" "${pre}; gpu_tuned_date_label 'v0.20261011.3-gb10-cu134'"
+check "date_label: a native tag with an impossible date is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label 'v0.20260230.0-gb10-cu134')\"; echo \"[\${X}]\""
+check "date_label: a native tag with a leading-zero seq is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label 'v0.20261011.01-gb10-cu134')\"; echo \"[\${X}]\""
+check "date_label: an old v<N>-<variant>-cu tag is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label 'v11243-gb10-cu133')\"; echo \"[\${X}]\""
+check "native_tag: bare date writes seq 0" 0 "-" "^v0\\.20261011\\.0-gb10-cu134$" "${pre}; gpu_tuned_native_tag gb10 cu134 20261011"
+check "native_tag: date.seq keeps the seq" 0 "-" "^v0\\.20261011\\.2-gb10-cu134$" "${pre}; gpu_tuned_native_tag gb10 cu134 20261011.2"
+check "native_tag: round-trips through date_label" 0 "-" "^20261011\\.2$" "${pre}; gpu_tuned_date_label \"\$(gpu_tuned_native_tag gb10 cu134 20261011.2)\""
+check "native_tag: a bad label, cuda tag or variant is refused" 1 "gpu_tuned_native_tag" "-" "${pre}; gpu_tuned_native_tag gb10 cu134 20261011.0"
+check "native_tag: a cuda value without the cu prefix is refused" 1 "gpu_tuned_native_tag" "-" "${pre}; gpu_tuned_native_tag gb10 134 20261011"
+check "native_tag: sequence allocation sees native tags as taken" 0 "-" "^1$" \
+  "${pre}; printf 'v0.20261011.0-gb10-cu134\\nv0.20260101.0-gb10-cu133\\n' | while read t; do gpu_tuned_date_label \"\$t\"; done | gpu_tuned_next_seq 20261011"
 check "date_label: a public .dev<date> version is not mistaken for a label" 0 "-" "^\\[\\]$" \
   "${pre}; X=\"\$(gpu_tuned_date_label '2.15.0.dev20260911')\"; echo \"[\${X}]\""
 check "date_label: a date with no <variant>.cu<cuda>. before it is not a label" 0 "-" "^\\[\\]$" \
