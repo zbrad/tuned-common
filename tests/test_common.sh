@@ -286,6 +286,22 @@ check "ninja_timing: a no-op build (nothing after the offset) fails and writes n
 check "ninja_timing: a log shorter than the offset (replaced during the build) fails" 1 "smaller" "-" \
   "${pre}; gpu_tuned_ninja_timing '${nt}/log' 99999 '${nt}/x.tsv'"
 check "ninja_timing: a missing log fails" 1 "no ninja log" "-" "${pre}; gpu_tuned_ninja_timing '${nt}/none' 0 '${nt}/x.tsv'"
+# --- verify_venv with a leftover .egg-info and a fresh venv, under set -euo pipefail ---
+vv="$(mktemp -d)"
+python3 -m venv "${vv}/venv" >/dev/null 2>&1
+mkdir -p "${vv}/repo/leftover.egg-info"
+printf 'Metadata-Version: 2.1\nName: leftover\nVersion: 1.0\n' > "${vv}/repo/leftover.egg-info/PKG-INFO"
+check "verify_venv: a fresh venv without the package passes under set -euo pipefail" 0 "-" "^OK$" \
+  "set -euo pipefail; ${pre}; gpu_tuned_verify_venv '${vv}/venv' '${vv}/repo' >/dev/null; echo OK"
+mkdir -p "${vv}/repo2/leftover.egg-info"
+printf 'Metadata-Version: 2.1\nName: leftover\nVersion: 2.0\n' > "${vv}/repo2/leftover.egg-info/PKG-INFO"
+# an installed "leftover 1.0" in the venv: a dist-info directory is all pip show needs
+sp="$("${vv}/venv/bin/python" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
+mkdir -p "${sp}/leftover-1.0.dist-info"
+printf 'Metadata-Version: 2.1\nName: leftover\nVersion: 1.0\n' > "${sp}/leftover-1.0.dist-info/METADATA"
+check "verify_venv: a real version mismatch is still refused" 1 "does not match" "-" \
+  "set -euo pipefail; ${pre}; gpu_tuned_verify_venv '${vv}/venv' '${vv}/repo2'"
+rm -rf "${vv}"
 rm -rf "${nt}"
 check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \
   "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r tag title notes 'torch-2.15.0-cp314-cp314-linux_aarch64.whl#w' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"

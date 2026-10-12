@@ -1098,8 +1098,11 @@ gpu_tuned_verify_venv() {
     for egg_dir in "${repo_root}"/*.egg-info; do
         [[ -d "${egg_dir}" ]] || continue
         pkg_name="$(basename "${egg_dir}" .egg-info)"
-        egg_version="$(sed -n 's/^Version: //p' "${egg_dir}/PKG-INFO" 2>/dev/null | head -1)"
-        installed_version="$("${venv_dir}/bin/pip" show "${pkg_name}" 2>/dev/null | sed -n 's/^Version: //p')"
+        # `|| true`: pip show exits 1 for a package not installed yet (a fresh venv), and a missing
+        # PKG-INFO fails sed; both mean "nothing to compare" (empty is handled below), but under
+        # set -e + pipefail the failed assignment would abort the caller instead.
+        egg_version="$(sed -n 's/^Version: //p' "${egg_dir}/PKG-INFO" 2>/dev/null | head -1 || true)"
+        installed_version="$("${venv_dir}/bin/pip" show "${pkg_name}" 2>/dev/null | sed -n 's/^Version: //p' || true)"
         if [[ -n "${egg_version}" && -n "${installed_version}" && "${egg_version}" != "${installed_version}" ]]; then
             echo "ERROR: gpu_tuned_verify_venv: ${egg_dir}/PKG-INFO's Version (${egg_version}) does not match ${venv_dir}'s installed ${pkg_name} (${installed_version}) -- stale metadata, likely left over from a different/deleted venv. Delete it: rm -rf ${egg_dir}" >&2
             return 1
@@ -1113,7 +1116,7 @@ gpu_tuned_verify_venv() {
             echo "ERROR: gpu_tuned_verify_venv: ${cmake_cache}'s CMAKE_HOME_DIRECTORY (${cached_home}) does not match this repo (${repo_root}) -- this build/ dir looks copied from another repo. Delete it: rm -rf ${repo_root}/build" >&2
             return 1
         fi
-    done < <(find "${repo_root}/build" -name 'CMakeCache.txt' 2>/dev/null)
+    done < <(find "${repo_root}/build" -name 'CMakeCache.txt' 2>/dev/null || true)
 
     return 0
 }
