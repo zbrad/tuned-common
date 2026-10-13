@@ -548,6 +548,32 @@ check "rename_package: a stock name in a file added later is repointed on the ne
 rm -rf "${co}"
 fi
 
+# --- build-time -tuned names via a CMake include (gpu_tuned_so_names_cmake) ---
+if ! command -v cmake >/dev/null 2>&1 || ! command -v gcc >/dev/null 2>&1 || ! command -v patchelf >/dev/null 2>&1; then
+    skip "so_names_cmake: build-time names" "needs cmake, gcc and patchelf; NOT verified on this machine"
+else
+sn="$(mktemp -d)"; mkdir -p "${sn}/src/dep" "${sn}/src/dep2"
+(
+    set -e; cd "${sn}"
+    printf 'int dep_v(void){return 5;}\n' > src/dep/dep.c
+    printf 'int dep_v(void);\nint dep2_v(void){return dep_v()+1;}\n' > src/dep2/dep2.c
+    printf 'int dep_v(void);\nint main(void){return dep_v()==5?0:1;}\n' > src/main.c
+    printf 'project(dep C)\nadd_library(dep SHARED dep.c)\nset_target_properties(dep PROPERTIES VERSION 1.2 SOVERSION 1)\n' > src/dep/CMakeLists.txt
+    printf 'project(dep2 C)\nadd_library(dep2 SHARED dep2.c)\nset_target_properties(dep2 PROPERTIES OUTPUT_NAME dep2-gb10)\ntarget_link_libraries(dep2 PUBLIC dep)\nadd_library(dep3 STATIC dep2.c)\n' > src/dep2/CMakeLists.txt
+    printf 'cmake_minimum_required(VERSION 3.24)\nproject(top C)\nadd_subdirectory(dep)\nadd_subdirectory(dep2)\nadd_executable(app main.c)\ntarget_link_libraries(app dep)\n' > src/CMakeLists.txt
+    bash -c "source '${LIB}'; gpu_tuned_so_names_cmake '${sn}/names.cmake'"
+    cmake -S src -B b -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES="${sn}/names.cmake" "-DTUNED_SO_TARGETS=dep;dep2;dep3;absent"
+    cmake --build b
+) >"${sn}/log" 2>&1 || { cat "${sn}/log"; }
+check "so_names_cmake: a versioned library gets the mark in file name and SONAME" 0 "-" "^libdep-tuned\\.so\\.1$" "ls '${sn}/b/dep' | grep -E '^libdep-tuned\\.so\\.1\$'; patchelf --print-soname '${sn}/b/dep/libdep-tuned.so.1'"
+check "so_names_cmake: a library with an OUTPUT_NAME keeps it and adds the mark" 0 "-" "^libdep2-gb10-tuned\\.so$" "patchelf --print-soname '${sn}/b/dep2/libdep2-gb10-tuned.so'"
+check "so_names_cmake: a dependent's DT_NEEDED names the tuned library" 0 "-" "^libdep-tuned\\.so\\.1$" "patchelf --print-needed '${sn}/b/dep2/libdep2-gb10-tuned.so' | grep dep"
+check "so_names_cmake: the executable links the tuned library and runs" 0 "-" "^0$" "cd '${sn}/b'; patchelf --print-needed app | grep -q libdep-tuned && LD_LIBRARY_PATH='${sn}/b/dep' ./app; echo \$?"
+check "so_names_cmake: a static archive and an absent target are left alone" 0 "-" "^libdep3\\.a$" "ls '${sn}/b/dep2' | grep -E '^libdep3'"
+check "so_names_cmake: no output file is an error" 1 "need an output file" "-" "${pre}; gpu_tuned_so_names_cmake"
+rm -rf "${sn}"
+fi
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: one fixed cmake dir per toolkit under tuned/build/<cuda>" 0 "-" "^/r/tuned/build/cu133/cmake$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"
