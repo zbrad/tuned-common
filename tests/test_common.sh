@@ -560,6 +560,12 @@ check "warn_pip_cmake_packages: names the wheel and the uninstall command" 0 "pi
 mkdir -p "${ip}/home/.local/lib/python3.14/site-packages/torch-2.0.dist-info"
 printf 'pkgC/share/cmake/c/c.cmake,,\n' > "${ip}/home/.local/lib/python3.14/site-packages/torch-2.0.dist-info/RECORD"
 check "warn_pip_cmake_packages: an unrelated wheel is never suggested for removal" 0 "-" "^0$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\" 2>&1 | grep -c torch || true"
+printf 'nvtx3_DIR:PATH=%s/home/.local/lib/python3.14/site-packages/pkgA/lib64/cmake/nvtx3\nrmm_DIR:PATH=/opt/ok/rmm\nPython_EXECUTABLE:FILEPATH=%s/home/.local/lib/python3.14/site-packages/x/python\n' "${ip}" "${ip}" > "${ip}/bad.cache"
+printf 'nvtx3_DIR:PATH=nvtx3_DIR-NOTFOUND\nrmm_DIR:PATH=/opt/ok/rmm\n' > "${ip}/good.cache"
+check "verify_no_pip_cmake_deps: a _DIR into a pip wheel fails and names it" 1 "nvtx3_DIR from a pip wheel|resolved nvtx3_DIR" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/bad.cache'\""
+check "verify_no_pip_cmake_deps: only the pip entry is reported" 0 "-" "^1$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/bad.cache'\" 2>&1 | grep -c 'resolved'"
+check "verify_no_pip_cmake_deps: a clean cache passes" 0 "-" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/good.cache'\""
+check "verify_no_pip_cmake_deps: a missing cache file fails" 1 "no such cache file" "-" "bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/none'\""
 check "warn_pip_cmake_packages: nothing installed prints nothing" 0 "-" "^\\[\\]$" "echo \"[\$(HOME='${ip}/empty' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\" 2>&1)]\""
 rm -rf "${ip}"
 

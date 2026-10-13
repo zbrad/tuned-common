@@ -1705,6 +1705,27 @@ gpu_tuned_warn_pip_cmake_packages() {
     return 0
 }
 
+# gpu_tuned_verify_no_pip_cmake_deps <CMakeCache.txt> -- fail (rc 1, names each entry) if any *_DIR or
+# *_ROOT entry of a build's CMake cache points into a user-site pip prefix (see
+# gpu_tuned_cmake_ignore_pip_prefixes). The ignore list should make that impossible, so this is the
+# check that it did: a dependency (nvtx3, rmm ...) resolved from a stock wheel is not fetched, so it is
+# missing from the package built from this tree. Run it after configure; a stale cache from before the
+# ignore list is caught too (the entry must be unset with -U<var>).
+gpu_tuned_verify_no_pip_cmake_deps() {
+    local cache="${1:-}" ign p line bad=0
+    [ -f "${cache}" ] || { echo "ERROR: gpu_tuned_verify_no_pip_cmake_deps: no such cache file: ${cache}" >&2; return 1; }
+    ign="$(gpu_tuned_cmake_ignore_pip_prefixes)"
+    [ -n "${ign}" ] || return 0
+    while IFS= read -r line; do
+        while IFS= read -r p; do
+            [ -n "${p}" ] || continue
+            case "${line#*=}" in "${p}"|"${p}"/*) echo "ERROR: CMake resolved ${line%%:*} from a pip wheel: ${line#*=}" >&2; bad=1; break ;; esac
+        done < <(printf '%s\n' "${ign}" | tr ';' '\n')
+    done < <(grep -E '^[A-Za-z0-9_]+_(DIR|ROOT):[A-Z]+=' "${cache}")
+    [ "${bad}" -eq 0 ] || echo "  Remove the wheel (see gpu_tuned_warn_pip_cmake_packages) and reconfigure with -U<var> for each entry above." >&2
+    return "${bad}"
+}
+
 # gpu_tuned_rename_package <stage-dir> <ours-manifest> <system-manifest|-> <keep-regex> <assume-present-regex> [<ref-dir>...]
 # -- the whole package-time rename in one call: gpu_tuned_rename_sonames, then every file under
 # each <ref-dir> (CMake import files, pkg-config; typically <stage>/lib/cmake and <stage>/lib/pkgconfig,
