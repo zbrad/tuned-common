@@ -548,6 +548,14 @@ check "rename_package: a stock name in a file added later is repointed on the ne
 rm -rf "${co}"
 fi
 
+# --- gpu_tuned_cmake_ignore_pip_prefixes ---
+ip="$(mktemp -d)"
+mkdir -p "${ip}/home/.local/lib/python3.14/site-packages/pkgA/lib64/cmake/a" "${ip}/home/.local/lib/python3.14/site-packages/pkgB/include" "${ip}/home/.local/lib/python3.14/site-packages/pkgC/share/cmake/c" "${ip}/empty"
+check "ignore_pip_prefixes: lists site-packages and packages that ship CMake config" 0 "-" "^${ip}/home/.local/lib/python3.14/site-packages;${ip}/home/.local/lib/python3.14/site-packages/pkgA;${ip}/home/.local/lib/python3.14/site-packages/pkgC$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_cmake_ignore_pip_prefixes\"; echo"
+check "ignore_pip_prefixes: a package without CMake config is not listed" 0 "-" "^0$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_cmake_ignore_pip_prefixes\" | grep -c pkgB || true"
+check "ignore_pip_prefixes: no user site-packages prints nothing" 0 "-" "^\\[\\]$" "echo \"[\$(HOME='${ip}/empty' bash -c \"source '${LIB}'; gpu_tuned_cmake_ignore_pip_prefixes\")]\""
+rm -rf "${ip}"
+
 # --- build-time -tuned names via a CMake include (gpu_tuned_so_names_cmake) ---
 if ! command -v cmake >/dev/null 2>&1 || ! command -v gcc >/dev/null 2>&1 || ! command -v patchelf >/dev/null 2>&1; then
     skip "so_names_cmake: build-time names" "needs cmake, gcc and patchelf; NOT verified on this machine"
