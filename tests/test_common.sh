@@ -526,6 +526,25 @@ check "rename: a manifest entry that is not in the stage is an error" 1 "not in"
 mkdir -p "${co}/k"; cp "${co}/sys/libsys.so.2" "${co}/k/"; rm -rf "${co}/k2"; cp -r "${co}/up" "${co}/k2" >/dev/null 2>&1
 check "rename: --keep leaves matching names alone (and the gate accepts them as kept)" 0 "-" "-" \
   "cd '${co}'; rm -rf kk; mkdir kk; cp up/libdemo.so.0 kk/libplug.so.0; printf 'libplug.so.0\n' > kk.manifest; ${pre}; gpu_tuned_rename_sonames kk kk.manifest '^libplug'; [ -f kk/libplug.so.0 ] && gpu_tuned_verify_unique_sonames kk - '^libplug' '^libc\\.so'"
+# gpu_tuned_rename_package: rename + CMake/pkg-config repoint + gates in one call
+(
+    set -e; cd "${co}"; rm -rf pk; mkdir -p pk/lib/cmake/demo pk/lib/pkgconfig
+    gcc -shared -fPIC -Wl,-soname,libdemo.so.0 ours.c -o pk/lib/libdemo.so.0
+    gcc -shared -fPIC -Wl,-soname,libdemo-extra.so extra.c -o pk/lib/libdemo-extra.so -L pk/lib -l:libdemo.so.0
+    gcc -shared -fPIC -Wl,-soname,libkeep.so keep.c -o pk/lib/libkeep.so 2>/dev/null || { printf 'int keep_v(void){return 3;}\n' > keep.c; gcc -shared -fPIC -Wl,-soname,libkeep.so keep.c -o pk/lib/libkeep.so; }
+    printf 'set(P "${_IMPORT_PREFIX}/lib/libdemo.so.0")\nset(Q "libdemo-extra.so")\nset(K "libkeep.so")\n' > pk/lib/cmake/demo/t.cmake
+    printf 'Libs: -ldemo-extra -l:libdemo.so.0\n' > pk/lib/pkgconfig/demo.pc
+    printf 'libdemo.so.0\nlibdemo-extra.so\nlibkeep.so\n' > pk.manifest
+) >/dev/null 2>&1
+PKG="gpu_tuned_rename_package '${co}/pk/lib' '${co}/pk.manifest' - '^libkeep\\.so\$' '^libc\\.so' '${co}/pk/lib/cmake' '${co}/pk/lib/pkgconfig' '${co}/pk/lib/nowhere'"
+check "rename_package: renames, repoints, prints, passes the gate" 0 "-" "libdemo\\.so\\.0 -> libdemo-tuned\\.so\\.0" "${pre}; ${PKG}"
+check "rename_package: the CMake file names the tuned libraries" 0 "-" 'lib/libdemo-tuned\.so\.0"\).*libdemo-extra-tuned\.so' \
+  "tr '\n' ' ' < '${co}/pk/lib/cmake/demo/t.cmake'"
+check "rename_package: a kept library's reference is untouched" 0 "-" 'set\(K "libkeep\.so"\)' "cat '${co}/pk/lib/cmake/demo/t.cmake'"
+check "rename_package: pkg-config's -l:<file> form is repointed, a bare -l<name> is not a file name and is left alone" 0 "-" "Libs: -ldemo-extra -l:libdemo-tuned\\.so\\.0" "cat '${co}/pk/lib/pkgconfig/demo.pc'"
+check "rename_package: running it again changes nothing and still passes" 0 "-" "-" "${pre}; ${PKG}"
+check "rename_package: a stock name in a file added later is repointed on the next run" 0 "-" "x libdemo-tuned\\.so\\.0" \
+  "${pre}; printf 'x libdemo.so.0\n' > '${co}/pk/lib/cmake/demo/late.txt'; ${PKG} >/dev/null; cat '${co}/pk/lib/cmake/demo/late.txt'"
 rm -rf "${co}"
 fi
 

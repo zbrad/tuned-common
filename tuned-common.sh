@@ -1602,6 +1602,41 @@ gpu_tuned_rename_sonames() {
     done
 }
 
+# gpu_tuned_rename_package <stage-dir> <ours-manifest> <system-manifest|-> <keep-regex> <assume-present-regex> [<ref-dir>...]
+# -- the whole package-time rename in one call: gpu_tuned_rename_sonames, then every file under
+# each <ref-dir> (CMake import files, pkg-config; typically <stage>/lib/cmake and <stage>/lib/pkgconfig,
+# directories that do not exist are skipped) is rewritten so that each renamed manifest name is
+# replaced by its tuned name, then it fails if any ref file still names a stock (renamed) name, then
+# gpu_tuned_verify_unique_sonames. Idempotent. Prints "old -> new" per rename, indented. The caller
+# keeps what is specific to it: building the manifests, and re-checking its build-info stamp
+# afterwards (patchelf rewrote the files). A manifest name matching <keep-regex> is left alone.
+# Limit: only file names are rewritten (libfoo.so, -l:libfoo.so); a bare pkg-config `-lfoo` names no
+# file and is NOT repointed, so a package that ships such a reference needs it fixed by hand.
+gpu_tuned_rename_package() {
+    local stage="${1:-}" ours="${2:-}" sysman="${3:--}" keep="${4:-}" assume="${5:-}" name new d f bad=0
+    shift $(( $# < 5 ? $# : 5 ))
+    gpu_tuned_rename_sonames "${stage}" "${ours}" "${keep}" | sed 's/^/  /'
+    [ "${PIPESTATUS[0]}" -eq 0 ] || return 1
+    while IFS= read -r name; do
+        [ -n "${name}" ] || continue
+        if [ -n "${keep}" ] && [[ "${name}" =~ ${keep} ]]; then continue; fi
+        new="$(gpu_tuned_tuned_so_name "${name}")" || return 1
+        [ "${name}" != "${new}" ] || continue
+        for d in "$@"; do
+            [ -d "${d}" ] || continue
+            # the old name as a whole word: not preceded or followed by a name character
+            grep -rlE "(^|[^A-Za-z0-9_-])${name//./\\.}([^A-Za-z0-9._-]|\$)" "${d}" 2>/dev/null | while IFS= read -r f; do
+                sed -i -E "s#(^|[^A-Za-z0-9_-])${name//./\\.}([^A-Za-z0-9._-]|\$)#\\1${new}\\2#g" "${f}"
+            done || true
+            if grep -rqE "(^|[^A-Za-z0-9_-])${name//./\\.}([^A-Za-z0-9._-]|\$)" "${d}" 2>/dev/null; then
+                echo "VIOLATION: files under ${d} still name the stock ${name}." >&2; bad=1
+            fi
+        done
+    done < "${ours}"
+    [ "${bad}" -eq 0 ] || return 1
+    gpu_tuned_verify_unique_sonames "${stage}" "${sysman}" "${keep}" "${assume}"
+}
+
 # gpu_tuned_verify_unique_sonames <stage-dir> <system-manifest|-> [keep-regex] [assume-present-regex]
 # -- the gate; it FAILS CLOSED. Every shared object in <stage-dir> must be exactly one of:
 # tuned (file name and SONAME carry the mark), kept (matches [keep-regex]), or a bundled system
