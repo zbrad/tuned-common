@@ -571,6 +571,20 @@ check "verify_no_pip_cmake_deps: a missing cache file fails" 1 "no such cache fi
 check "warn_pip_cmake_packages: nothing installed prints nothing" 0 "-" "^\\[\\]$" "echo \"[\$(HOME='${ip}/empty' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\" 2>&1)]\""
 rm -rf "${ip}"
 
+# --- gpu_tuned_verify_consumer_configure ---
+if ! command -v cmake >/dev/null 2>&1 || ! command -v c++ >/dev/null 2>&1; then
+    skip "verify_consumer_configure" "needs cmake and a C++ compiler; NOT verified on this machine"
+else
+cc="$(mktemp -d)"
+mkdir -p "${cc}/bad/lib/cmake/foo" "${cc}/good/lib/cmake/foo" "${cc}/good/lib/cmake/nvtx3"
+printf 'include(CMakeFindDependencyMacro)\nfind_dependency(nvtx3)\n' | tee "${cc}/bad/lib/cmake/foo/foo-config.cmake" > "${cc}/good/lib/cmake/foo/foo-config.cmake"
+printf 'set(nvtx3_FOUND TRUE)\n' > "${cc}/good/lib/cmake/nvtx3/nvtx3-config.cmake"
+check "verify_consumer_configure: a package that needs nvtx3 and lacks it fails" 1 "cannot configure" "-" "bash -c \"source '${LIB}'; gpu_tuned_verify_consumer_configure '${cc}/bad' foo\""
+check "verify_consumer_configure: a package that ships nvtx3 passes" 0 "-" "-" "bash -c \"source '${LIB}'; gpu_tuned_verify_consumer_configure '${cc}/good' foo\""
+check "verify_consumer_configure: no package name is an error" 1 "need <package-dir>" "-" "bash -c \"source '${LIB}'; gpu_tuned_verify_consumer_configure '${cc}/good'\""
+rm -rf "${cc}"
+fi
+
 # --- build-time -tuned names via a CMake include (gpu_tuned_so_names_cmake) ---
 if ! command -v cmake >/dev/null 2>&1 || ! command -v gcc >/dev/null 2>&1 || ! command -v patchelf >/dev/null 2>&1; then
     skip "so_names_cmake: build-time names" "needs cmake, gcc and patchelf; NOT verified on this machine"

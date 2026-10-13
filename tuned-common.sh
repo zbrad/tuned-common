@@ -1743,6 +1743,41 @@ gpu_tuned_verify_no_pip_cmake_deps() {
     return "${bad}"
 }
 
+# gpu_tuned_verify_consumer_configure <package-dir> <cmake-package>... -- prove the package is usable by a
+# consumer: configure a minimal CMake project that does find_package(<name> REQUIRED CONFIG) for each
+# name against ONLY <package-dir> (CMAKE_PREFIX_PATH), with the user-site pip prefixes ignored, then
+# require that nvtx3_DIR, rmm_DIR and rapids_logger_DIR (those the consumer resolved) point inside
+# <package-dir> and that nvtx3_DIR is set. This is the failure a consumer such as zbrad/faiss hits when
+# a package leaves a dependency out: its CMake files ask for it and nothing in the package answers.
+# Needs cmake; the CUDA toolkit must be findable (find_dependency(CUDAToolkit)). rc 1 and the CMake
+# output on failure.
+gpu_tuned_verify_consumer_configure() {
+    local pkg="${1:-}" tmp rc=0 var val
+    shift || true
+    [ -d "${pkg}" ] && [ "$#" -gt 0 ] || { echo "ERROR: gpu_tuned_verify_consumer_configure: need <package-dir> and at least one package name." >&2; return 1; }
+    pkg="$(cd "${pkg}" && pwd -P)"
+    tmp="$(mktemp -d)" || return 1
+    {
+        printf 'cmake_minimum_required(VERSION 3.26)\nproject(tuned_consumer CXX)\n'
+        for var in "$@"; do printf 'find_package(%s REQUIRED CONFIG)\n' "${var}"; done
+    } > "${tmp}/CMakeLists.txt"
+    if ! cmake -S "${tmp}" -B "${tmp}/b" "-DCMAKE_PREFIX_PATH=${pkg}" "-DCMAKE_IGNORE_PREFIX_PATH=$(gpu_tuned_cmake_ignore_pip_prefixes)" > "${tmp}/log" 2>&1; then
+        echo "ERROR: a consumer cannot configure against ${pkg} (find_package $*):" >&2
+        sed 's/^/  /' "${tmp}/log" >&2
+        rm -rf "${tmp}"; return 1
+    fi
+    for var in nvtx3_DIR rmm_DIR rapids_logger_DIR; do
+        val="$(grep -E "^${var}:[A-Z]+=" "${tmp}/b/CMakeCache.txt" | head -1)"; val="${val#*=}"
+        if [ -z "${val}" ] || [[ "${val}" == *-NOTFOUND ]]; then
+            [ "${var}" = nvtx3_DIR ] && { echo "ERROR: the consumer never resolved nvtx3 from ${pkg}; the package does not ship it." >&2; rc=1; }
+            continue
+        fi
+        case "${val}" in "${pkg}"/*) ;; *) echo "ERROR: the consumer resolved ${var} outside the package: ${val}" >&2; rc=1 ;; esac
+    done
+    rm -rf "${tmp}"
+    return "${rc}"
+}
+
 # gpu_tuned_rename_package <stage-dir> <ours-manifest> <system-manifest|-> <keep-regex> <assume-present-regex> [<ref-dir>...]
 # -- the whole package-time rename in one call: gpu_tuned_rename_sonames, then every file under
 # each <ref-dir> (CMake import files, pkg-config; typically <stage>/lib/cmake and <stage>/lib/pkgconfig,
