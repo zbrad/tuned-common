@@ -1696,6 +1696,7 @@ gpu_tuned_warn_pip_cmake_packages() {
         printf '    %s\n' "${names[@]}"
         echo "This build IGNORES them (CMAKE_IGNORE_PREFIX_PATH), so it is not affected. But they carry the"
         echo "stock librmm/nvtx3/... names this fleet replaces, and could be loaded in place of ours at run time."
+        case " ${names[*]} " in *" librmm"*) echo "nvtx3: librmm bundles its own nvtx3. That is NOT the tuned copy: the fleet fetches nvtx3 at the pinned"; echo "rapids-cmake, tests against it and ships it. The wheel's copy is unpinned and untested here (an equal version number"; echo "does not show the contents match), so a build that used it would not be the build that was tested." ;; esac
         echo "Remove them with:"
         echo "    python3 -m pip uninstall -y ${names[*]}"
         echo "(anything that depends on them, e.g. rmm-cu13 or pylibraft, must go too; pip lists dependents)"
@@ -1703,6 +1704,17 @@ gpu_tuned_warn_pip_cmake_packages() {
         echo ""
     } >&2
     return 0
+}
+
+# gpu_tuned__nvtx3_from_pip <cache> <ignore-list> -- true if the cache's nvtx3_DIR is under an ignored pip prefix.
+gpu_tuned__nvtx3_from_pip() {
+    local v p
+    v="$(grep -E '^nvtx3_DIR:[A-Z]+=' "${1}" | head -1)"; v="${v#*=}"
+    while IFS= read -r p; do
+        [ -n "${p}" ] || continue
+        case "${v}" in "${p}"|"${p}"/*) return 0 ;; esac
+    done < <(printf '%s\n' "${2}" | tr ';' '\n')
+    return 1
 }
 
 # gpu_tuned_verify_no_pip_cmake_deps <CMakeCache.txt> -- fail (rc 1, names each entry) if any *_DIR or
@@ -1722,6 +1734,11 @@ gpu_tuned_verify_no_pip_cmake_deps() {
             case "${line#*=}" in "${p}"|"${p}"/*) echo "ERROR: CMake resolved ${line%%:*} from a pip wheel: ${line#*=}" >&2; bad=1; break ;; esac
         done < <(printf '%s\n' "${ign}" | tr ';' '\n')
     done < <(grep -E '^[A-Za-z0-9_]+_(DIR|ROOT):[A-Z]+=' "${cache}" | grep -vE '^CMAKE_')
+    if grep -qE '^nvtx3_DIR:[A-Z]+=' "${cache}" && [ "${bad}" -ne 0 ] && gpu_tuned__nvtx3_from_pip "${cache}" "${ign}"; then
+        echo "  nvtx3: this is NOT the tuned copy. The fleet fetches nvtx3 at the pinned rapids-cmake, builds and tests against" >&2
+        echo "  that copy and ships it in the package. The wheel's copy is unpinned, untested here and unaligned with the rest of" >&2
+        echo "  the tree; an equal version number (both 3.2.0 when this was written) does not show the contents match." >&2
+    fi
     [ "${bad}" -eq 0 ] || echo "  Remove the wheel (see gpu_tuned_warn_pip_cmake_packages) and reconfigure with -U<var> for each entry above." >&2
     return "${bad}"
 }

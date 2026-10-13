@@ -563,6 +563,8 @@ check "warn_pip_cmake_packages: an unrelated wheel is never suggested for remova
 printf 'nvtx3_DIR:PATH=%s/home/.local/lib/python3.14/site-packages/pkgA/lib64/cmake/nvtx3\nrmm_DIR:PATH=/opt/ok/rmm\nPython_EXECUTABLE:FILEPATH=%s/home/.local/lib/python3.14/site-packages/x/python\n' "${ip}" "${ip}" > "${ip}/bad.cache"
 printf 'nvtx3_DIR:PATH=nvtx3_DIR-NOTFOUND\nrmm_DIR:PATH=/opt/ok/rmm\nCMAKE_ROOT:INTERNAL=%s/home/.local/lib/python3.14/site-packages/cmake/data/share/cmake-4.3\n' "${ip}" > "${ip}/good.cache"
 check "verify_no_pip_cmake_deps: a _DIR into a pip wheel fails and names it" 1 "nvtx3_DIR from a pip wheel|resolved nvtx3_DIR" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/bad.cache'\""
+check "verify_no_pip_cmake_deps: an nvtx3 from a wheel says it is not the tuned copy" 1 "NOT the tuned copy" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/bad.cache'\""
+check "warn_pip_cmake_packages: a librmm wheel gets the nvtx3 not-tuned note" 0 "NOT the tuned copy" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\""
 check "verify_no_pip_cmake_deps: only the pip entry is reported" 0 "-" "^1$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/bad.cache'\" 2>&1 | grep -c 'resolved'"
 check "verify_no_pip_cmake_deps: a clean cache passes" 0 "-" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/good.cache'\""
 check "verify_no_pip_cmake_deps: a missing cache file fails" 1 "no such cache file" "-" "bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/none'\""
