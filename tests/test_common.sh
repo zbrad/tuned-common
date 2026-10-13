@@ -270,6 +270,12 @@ check "smoke: a missing wheel and missing arguments are refused" 1 "usage" "-" "
 check "smoke: the throwaway venv is removed on success" 0 "-" "^OK$" \
   "${smoke}; mkdir '${toy}/tmp'; TMPDIR='${toy}/tmp' gpu_tuned_smoke_wheel '${toy}/toysmoke-1.0+gb10.cu134.20261011-py3-none-any.whl' toysmoke toysmoke >/dev/null && [ -z \"\$(ls -A '${toy}/tmp')\" ] && echo OK"
 rm -rf "${toy}"
+# --- gpu_tuned_jobs ---
+for pair in 20:17 12:7 8:5 4:2 3:1 1:1 5:3 64:61; do
+  check "jobs: ${pair%%:*} cores -> ${pair##*:}" 0 "-" "^${pair##*:}$" \
+    "${pre}; GPU_TUNED_NPROC=${pair%%:*} gpu_tuned_jobs"
+done
+
 # --- ninja timing (gpu_tuned_ninja_timing) ---
 nt="$(mktemp -d)"
 printf '# ninja log v7\n0\t100\t1\told.cu.o\th\n' > "${nt}/log"

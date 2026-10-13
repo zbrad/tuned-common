@@ -1450,6 +1450,24 @@ gpu_tuned_build_local_version() {
     gpu_tuned_local_version_dated "${variant}" "${cuda}" "${label%%.*}" "$(gpu_tuned_label_seq "${label}")"
 }
 
+# gpu_tuned_jobs -- the default parallel job count for a build: the largest prime not above
+# nproc-2, so the desktop session and other builds keep a couple of cores and a memory-heavy nvcc
+# fan-out is not at the very maximum (20 cores -> 17, 12 -> 7, 8 -> 5, 4 -> 2, 3 or fewer -> 1).
+# The prime is a house preference, not a technical requirement. Callers keep their own override:
+#   JOBS="${MAX_JOBS:-$(gpu_tuned_jobs)}". GPU_TUNED_NPROC replaces nproc (for tests).
+gpu_tuned_jobs() {
+    local n d
+    n=$(( ${GPU_TUNED_NPROC:-$(nproc)} - 2 ))
+    (( n >= 2 )) || { echo 1; return 0; }
+    for (( ; n > 2; n-- )); do
+        for (( d = 2; d * d <= n; d++ )); do
+            (( n % d == 0 )) && continue 2
+        done
+        break
+    done
+    echo "${n}"
+}
+
 # gpu_tuned_ninja_timing <ninja-log> <offset-bytes> <out-tsv> [<strip-prefix>] -- per-target build
 # timings from ninja's own log, for builds that run CMake+Ninja (pytorch, vllm, flash-attention...).
 # Take the log's size (wc -c) BEFORE the build and pass it as <offset-bytes>: ninja appends to the
