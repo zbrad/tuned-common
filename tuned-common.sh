@@ -1664,6 +1664,47 @@ gpu_tuned_cmake_ignore_pip_prefixes() {
     printf '%s' "${out[*]}"
 }
 
+# gpu_tuned_warn_pip_cmake_packages -- warn loudly (stderr) when user-site pip wheels ship CMake
+# packages (the ones gpu_tuned_cmake_ignore_pip_prefixes tells CMake to ignore), naming each wheel and
+# printing the pip command that removes them. The build is safe either way (they are ignored); the
+# warning is that a stock wheel is installed that could shadow our libraries at run time and that
+# nothing built here is tested against. Only wheels whose names clash with what this fleet ships are
+# named (GPU_TUNED_CONFLICT_WHEEL_RE, default librmm, rapids_logger, libkvikio, libraft, libcuvs);
+# unrelated CMake-shipping wheels such as torch are never suggested for removal. Always returns 0; prints nothing when there are none.
+gpu_tuned_warn_pip_cmake_packages() {
+    local ign sp d di base names=() pkg
+    ign="$(gpu_tuned_cmake_ignore_pip_prefixes)"
+    [ -n "${ign}" ] || return 0
+    while IFS= read -r d; do
+        [ -n "${d}" ] || continue
+        case "${d}" in */site-packages) continue ;; esac
+        sp="${d%/*}"; pkg="${d##*/}"
+        for di in "${sp}"/*.dist-info; do
+            [ -f "${di}/RECORD" ] || continue
+            if grep -q "^${pkg}/" "${di}/RECORD" 2>/dev/null; then
+                base="${di##*/}"; base="${base%%-*}"
+                [[ "${base}" =~ ${GPU_TUNED_CONFLICT_WHEEL_RE:-^(librmm|rapids_logger|libkvikio|libraft|libcuvs)} ]] && names+=("${base}")
+                break
+            fi
+        done
+    done < <(printf '%s\n' "${ign}" | tr ';' '\n')
+    [ "${#names[@]}" -gt 0 ] || return 0
+    {
+        echo ""
+        echo "################################################################################"
+        echo "WARNING: stock pip wheels that ship CMake packages are installed in your user site-packages:"
+        printf '    %s\n' "${names[@]}"
+        echo "This build IGNORES them (CMAKE_IGNORE_PREFIX_PATH), so it is not affected. But they carry the"
+        echo "stock librmm/nvtx3/... names this fleet replaces, and could be loaded in place of ours at run time."
+        echo "Remove them with:"
+        echo "    python3 -m pip uninstall -y ${names[*]}"
+        echo "(anything that depends on them, e.g. rmm-cu13 or pylibraft, must go too; pip lists dependents)"
+        echo "################################################################################"
+        echo ""
+    } >&2
+    return 0
+}
+
 # gpu_tuned_rename_package <stage-dir> <ours-manifest> <system-manifest|-> <keep-regex> <assume-present-regex> [<ref-dir>...]
 # -- the whole package-time rename in one call: gpu_tuned_rename_sonames, then every file under
 # each <ref-dir> (CMake import files, pkg-config; typically <stage>/lib/cmake and <stage>/lib/pkgconfig,

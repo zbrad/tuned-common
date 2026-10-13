@@ -554,6 +554,13 @@ mkdir -p "${ip}/home/.local/lib/python3.14/site-packages/pkgA/lib64/cmake/a" "${
 check "ignore_pip_prefixes: lists site-packages and packages that ship CMake config" 0 "-" "^${ip}/home/.local/lib/python3.14/site-packages;${ip}/home/.local/lib/python3.14/site-packages/pkgA;${ip}/home/.local/lib/python3.14/site-packages/pkgC$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_cmake_ignore_pip_prefixes\"; echo"
 check "ignore_pip_prefixes: a package without CMake config is not listed" 0 "-" "^0$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_cmake_ignore_pip_prefixes\" | grep -c pkgB || true"
 check "ignore_pip_prefixes: no user site-packages prints nothing" 0 "-" "^\\[\\]$" "echo \"[\$(HOME='${ip}/empty' bash -c \"source '${LIB}'; gpu_tuned_cmake_ignore_pip_prefixes\")]\""
+mkdir -p "${ip}/home/.local/lib/python3.14/site-packages/librmm_cu13-1.0.dist-info"
+printf 'pkgA/lib64/cmake/a/a.cmake,,\n' > "${ip}/home/.local/lib/python3.14/site-packages/librmm_cu13-1.0.dist-info/RECORD"
+check "warn_pip_cmake_packages: names the wheel and the uninstall command" 0 "pip uninstall -y librmm_cu13$" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\""
+mkdir -p "${ip}/home/.local/lib/python3.14/site-packages/torch-2.0.dist-info"
+printf 'pkgC/share/cmake/c/c.cmake,,\n' > "${ip}/home/.local/lib/python3.14/site-packages/torch-2.0.dist-info/RECORD"
+check "warn_pip_cmake_packages: an unrelated wheel is never suggested for removal" 0 "-" "^0$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\" 2>&1 | grep -c torch || true"
+check "warn_pip_cmake_packages: nothing installed prints nothing" 0 "-" "^\\[\\]$" "echo \"[\$(HOME='${ip}/empty' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\" 2>&1)]\""
 rm -rf "${ip}"
 
 # --- build-time -tuned names via a CMake include (gpu_tuned_so_names_cmake) ---
