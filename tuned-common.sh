@@ -1721,7 +1721,7 @@ gpu_tuned_verify_no_pip_cmake_deps() {
             [ -n "${p}" ] || continue
             case "${line#*=}" in "${p}"|"${p}"/*) echo "ERROR: CMake resolved ${line%%:*} from a pip wheel: ${line#*=}" >&2; bad=1; break ;; esac
         done < <(printf '%s\n' "${ign}" | tr ';' '\n')
-    done < <(grep -E '^[A-Za-z0-9_]+_(DIR|ROOT):[A-Z]+=' "${cache}")
+    done < <(grep -E '^[A-Za-z0-9_]+_(DIR|ROOT):[A-Z]+=' "${cache}" | grep -vE '^CMAKE_')
     [ "${bad}" -eq 0 ] || echo "  Remove the wheel (see gpu_tuned_warn_pip_cmake_packages) and reconfigure with -U<var> for each entry above." >&2
     return "${bad}"
 }
