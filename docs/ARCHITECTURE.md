@@ -4,7 +4,7 @@ The one design every repo in the tuned-builds fleet is measured against. Each re
 ID, says what a repo MUST do, which repos it applies to, and how to check it. A repo's compliance
 is the list of requirement IDs it passes, fails, or does not apply to, each with evidence.
 
-**Status: PROPOSED, written 2026-10-15; not yet ratified.** It consolidates rules that already
+**Status: PROPOSED, written 2026-10-15; not yet ratified as a whole.** Two rules in it are the user's own decisions of 2026-10-15 and already in force: native releases are named by the UTC date label (E2: "that's the wrong form, it should be date-based", about the `-g<sha>` tags), and package and release are separate stages (B3). It consolidates rules that already
 exist in one place or another (`README.md`, `docs/VERSIONING.md`, `docs/UPSTREAM_SYNC.md`,
 `tuned-common.sh`) and the build/test/package/release practice settled while rebuilding raft,
 cuvs, faiss and llama.cpp. Every requirement carries a **Source**; "practice 2026-10-15" means
@@ -55,9 +55,9 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| B1 | A native repo provides `tuned/build.sh`, `tuned/full_test.sh`, `tuned/package.sh` and `tuned/release.sh`, each taking `<variant>` and selecting the toolkit by `CUDA_TAG`/`CUDA_VER`, else `toolkits/DEFAULT`. | N | `ls`; run each with no args and read the usage | practice 2026-10-15 (raft, cuvs, faiss, llama.cpp) |
+| B1 | A native repo provides `tuned/build.sh`, `tuned/full_test.sh`, `tuned/package.sh`, `tuned/smoke_test.sh` and `tuned/release.sh`, each taking `<variant>` and selecting the toolkit by `CUDA_TAG`/`CUDA_VER`, else `toolkits/DEFAULT`. | N | `ls`; run each with no args and read the usage | practice 2026-10-15 (raft, cuvs, faiss, llama.cpp) |
 | B2 | A wheel repo provides a wheel build script, a full test script and a release script with the same stage order and gates (E, G, I apply). | W | `ls` | practice; wheel scripts predate this, compliance unmeasured |
-| B3 | The order is build, test, package, (review and commit notes), release. `release.sh` never builds, tests or packages; `package.sh` never tags, publishes or finalises notes. | N | read both scripts; `grep -n 'gh release\|git tag' package.sh` is empty | practice 2026-10-15; requested by the user 2026-10-15 ("split packaging and release") |
+| B3 | The order is build, test, package, smoke test, (review and commit notes), release. `release.sh` never builds, tests or packages; `package.sh` never tags, publishes or finalises notes. | N | read both scripts; `grep -n 'gh release\|git tag' package.sh` is empty | practice 2026-10-15; requested by the user 2026-10-15 ("split packaging and release") |
 | B4 | No stage selects a toolkit from `/usr/local/cuda` or from what is installed. | All | grep for `/usr/local/cuda\b` outside `toolkits/*.env` | README |
 
 ### C. Layout and isolation
@@ -76,7 +76,7 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| D1 | A consumer of another tuned repo's tarball fetches that repo's newest release and re-fetches whenever the newest tag differs from the one it unpacked (marker file); a stale unpacked copy is never reused silently. | N consuming N (cuvs<-raft, faiss<-cuvs) | `.release_tag` marker present and compared | faiss bug found 2026-10-15 |
+| D1 | A consumer of another tuned repo's tarball fetches that repo's newest release (`gpu_tuned_newest_release_tag`: the highest date label, ranked as numbers, never list order; an older-form tag only as a noted fallback) and re-fetches whenever the newest tag differs from the one it unpacked (marker file); a stale unpacked copy is never reused silently. | N consuming N (cuvs<-raft, faiss<-cuvs) | `.release_tag` marker present and compared | faiss bug found 2026-10-15 |
 | D2 | The dependency's package must carry everything its CMake config needs (nvtx3 included); the packager proves it with a consumer configure against the package alone (`gpu_tuned_verify_consumer_configure`). | N that ship a CMake package | package-time gate present | tuned-common 3b5f4d0 |
 | D3 | The producer->consumer pairing is recorded and test-run (`tuned/docs/RELEASE_PINS.md` for the RAPIDS chain), including which releases are superseded or deleted. | raft, cuvs | file present, row per release | practice |
 
@@ -91,7 +91,7 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 | E5 | Tag, tarball name, release title, notes file name and the artifact's own metadata show the same label. | All | compare | VERSIONING.md |
 | E6 | A commit count may be reported (e.g. a binary's `--version`) and checked, but identifies nothing. | All | grep `rev-list --count` outside a version check | user 2026-10-15; decisions/2026-09-10 superseded |
 | E7 | Releases published in an older form are not renamed (consumers pin URLs). Consumers accept both forms and rank any date-label tag above an older one. | All | consumer tag parsers | VERSIONING.md; practice 2026-10-15 (llama.cpp `install.sh`) |
-| E8 | Tooling refuses a wrong identity before `gh`: wheels are checked by `gpu_tuned_publish_release`; **native tag shape is not yet enforced by it** (it checks `.whl` assets only). | All | tooling gap, see section 6 | read `tuned-common.sh`, 2026-10-15 |
+| E8 | Tooling refuses a wrong identity before `gh`: `gpu_tuned_publish_release` checks every release tag (`gpu_tuned_check_release_tag`: a native or wheel date label, else refused) and every `.whl` asset's label. `GPU_TUNED_ALLOW_COUNTER_LABEL=1` lets a not-yet-migrated repo publish an older form, loudly. | All | `tests/test_common.sh` (release_tag, publish_release cases) | tuned-common d17e0f9, 2026-10-15 |
 
 ### F. Names that cannot collide with stock
 
@@ -109,6 +109,7 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 | G1 | `full_test.sh` runs the complete suite for one toolkit, against the artifacts it will ship, and writes a log in that toolkit's tree whose last summary line states pass or fail (a fixed phrase `release.sh` greps). Skips by design are named in the log header. | N, W | log exists, phrase present | practice (raft, cuvs, faiss, llama.cpp) |
 | G2 | Tests resolve libraries from this toolkit only: the toolkit lib dir first on `LD_LIBRARY_PATH` (`gpu_tuned_verify_toolkit_libs`), nothing pip-installed into site-packages, and the mapped-library check for Python repos. | N, W | gate present | tuned-common README; faiss `full_test.sh` |
 | G3 | A suite that is expensive or needs network still runs in full for a release. A narrower gate is a recorded decision, not a default. | All | log lists test count | user 2026-10-15 (llama.cpp ctest, all labels) |
+| G5 | A package smoke test (`tuned/smoke_test.sh`) extracts the tarball and runs at least three real tests from the repo against the package's own libraries, after a sha256 check and, where there is a CMake package, a consumer configure. That the package's libraries are the ones running is proved, not assumed (`gpu_tuned_verify_resolves_in`, or the mapped libraries of an import). Its log is `SMOKE_RESULTS_<variant>.log`; **a pass needs positive evidence** (the run reached its end marker), so an abort cannot read as a pass. | N | log and marker present | user 2026-10-15 ("run 1-3 tests ... that the repackaged version is working"); raft, cuvs, faiss |
 | G4 | Numbers quoted in notes (counts, timings) come from the attached log and name what was skipped. | All | notes vs log | Provenance of Claims (global rules) |
 
 ### H. Packaging
@@ -119,15 +120,16 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 | H2 | `package-info.txt` is removed first and written last, only if every package check passed. | N | read | practice 2026-10-15 |
 | H3 | Build-info stamping and any rewrite (`patchelf`, `objcopy`) apply to **staged copies**, never to the build tree, so the build tree stays older than its test log. | N | build tree mtimes unchanged by packaging | found 2026-10-15 (llama.cpp) |
 | H4 | A package check that cannot run is a failure, not a skip (a check that errors out silently passes nothing). Regexes use portable tools; a gate is proven by showing it fails on a bad input. | All | negative test recorded | found 2026-10-15 (llama.cpp RUNPATH `grep -P`) |
+| H6 | `package.sh` refuses to package a build made from other source than HEAD: the commit the build (or its test log) records may differ from HEAD only in `tuned/`. | N | gate present | practice 2026-10-15 (raft: build-tree lib stamp; cuvs, faiss: test-log commit) |
 | H5 | `package.sh` writes a DRAFT release-notes file if the tracked notes do not exist; it does not finalise them. | N | draft banner | practice 2026-10-15 |
 
 ### I. Release
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| I1 | `release.sh` gates, all reported together: clean tree and `HEAD` pushed; passing test log newer than the build artifacts (compared against the build tree, not staged copies); tarball newer than the test log; `package-info.txt` for this toolkit; only the tracked release notes changed since the packaged commit; notes not a DRAFT. | N | read, run a dry run | practice 2026-10-15; raft, cuvs, faiss, llama.cpp |
+| I1 | `release.sh` gates, all reported together: clean tree and `HEAD` pushed; passing test log newer than the build artifacts (compared against the build tree, not staged copies); tarball newer than the test log; a passing smoke log newer than the tarball; `package-info.txt` for this toolkit; only the tracked release notes changed since the packaged commit; notes not a DRAFT. | N | read, run a dry run | practice 2026-10-15; raft, cuvs, faiss, llama.cpp |
 | I2 | Release notes are a tracked file `tuned/releases/RELEASE_NOTES_<label>_<variant>_<cuda>.md`, reviewed by the maintainer and committed before release; the DRAFT line is the gate. | N | file tracked | practice (raft, cuvs) |
-| I3 | Publishing goes through `gpu_tuned_publish_release`, attaching the tarball, its `.sha256`, the notes and the test log. | N | read | tuned-common |
+| I3 | Publishing goes through `gpu_tuned_publish_release`, attaching the tarball, its checksum, the notes, the test log and the smoke log. | N | read | tuned-common |
 | I4 | A superseded release that is defective (not merely old) is deleted with its tag; the pins table says so. | raft, cuvs | pins table | practice 2026-10-15 |
 | I5 | `release.sh` runs without publishing unless told (`--publish`) where the release has a second remote effect (a source tag). | N with a source tag (llama.cpp) | read | llama.cpp |
 
@@ -179,24 +181,24 @@ checks above (A1, A2, B1, B3, C5, E2 for the newest release tag, E6, H1 presence
 trailers) and print the matrix; the rest need a person to read the script and say so. Until it
 exists the matrix is built by hand, and the date and commit it was built at are recorded.
 
-**Known gaps seen while writing this (2026-10-15; each verified in the session unless stated).**
-Compliance has not been measured; these are what was already in view.
+**Known gaps (2026-10-15; each verified in the session unless stated).** Compliance has not been measured; these
+are what was already in view.
 
-- **E2 / E4 / E5:** raft, cuvs and faiss published releases named `v<upstream version>-<variant>-<cuda>-g<sha>`
-  (e.g. `v26.12-gb10-cu134-g0fa8a51f`, `v1.15-gb10-cu134-g637f5b21e`), not the date label. The scheme
-  document (`docs/upstream-vs-tuned-versions.json`) expected `v0.<date>.<seq>-...` for them. Their
-  consumers and pins tables key on the sha form.
-- **E8:** `gpu_tuned_publish_release` does not check native tag shape (read in `tuned-common.sh`).
-- **E1, wheel repos:** the newest published wheels in the 2026-10-11 snapshot are in the counter
-  form (`tuning.N`), not the date form (from that file; not re-checked).
-- **E7 / consumers:** zbrad/ollama `scripts/precheck-tuned.sh` and `scripts/lib/llama-cpp-release.sh`
-  match only `v<N>-<variant>-cu<N>`; they will not see a date-label llama.cpp release. Recorded as a
-  future todo.
-- **llama.cpp:** `install.sh` pins `REPO_REF=tuning-v30`, not the date form its own release docs and
-  gate require. The package check does not start the server from the extracted tarball (H1 is
-  met, a stronger check is possible).
-- **C2:** faiss and llama.cpp use their own trees (see C2, open).
-- **F4:** undecided.
+- **Fixed 2026-10-15:** raft, cuvs and faiss now publish date-label releases (`v0.20261015.0-gb10-cu133` and `-cu134` each, repackaged
+  from the existing builds, smoke-tested as packaged); the old `v<ver>-<variant>-<cuda>-g<sha>` releases remain until deleted and
+  their pins rows say superseded. The producer lookups (cuvs<-raft, faiss<-cuvs) rank by date label; the tag gate (E8) is in tuned-common.
+- **E1, raft wheels:** `tuned/wheel.sh` and `tuned/raft_wheel_librmm_shared.sh` publish wheels under tags that are not date labels
+  (`v<ver>-aarch64-cuda133-gb10`, `librmm-v...`). With a tuned-common that has the E8 gate they are refused until migrated.
+- **E1, wheel repos:** the newest published wheels in the 2026-10-11 snapshot are in the counter form (`tuning.N`) (from
+  `docs/upstream-vs-tuned-versions.json`; not re-checked).
+- **E7 / consumers:** zbrad/ollama `scripts/precheck-tuned.sh` and `scripts/lib/llama-cpp-release.sh` match only
+  `v<N>-<variant>-cu<N>` and will not see a date-label llama.cpp release. Recorded as a future todo.
+- **llama.cpp:** `install.sh` pins `REPO_REF=tuning-v30`, not the date form its release docs and gate require; it has not yet synced
+  the E8 gate nor added a smoke test (G5; starting the server from the extracted tarball is the natural one); its package check is
+  otherwise as H1.
+- **C2:** faiss and llama.cpp use their own trees (open). **F4:** undecided.
+- **H6 is weaker where the build records no commit:** cuvs and faiss use the test log's commit, which proves what was tested, not what
+  was built.
 - **Not measured at all:** nccl, ollama, the wheel repos against B2/G/H/I, ComfyUI, open-webui.
 
 ## 7. Changing this document

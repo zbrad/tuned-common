@@ -151,8 +151,11 @@ PEP 440 itself ([spec](https://peps.python.org/pep-0440/); further reading:
 - `cu<cuda>` is a fused alphanumeric segment (the ecosystem convention), so it
   compares as text: `cu1310` (CUDA 13.10) sorts below `cu134` (verified). Not a
   problem until CUDA reaches two-digit minors; revisit then (`cu.13.10`).
-- Non-wheel artifacts (raft/cuvs/faiss tarballs and their `-g<sha>` tags) are
-  outside PEP 440 and follow their own tag convention.
+- Non-wheel artifacts (raft/cuvs/faiss/llama.cpp tarballs) are outside PEP 440. Until 2026-10-15 raft, cuvs and faiss named
+  them `v<ver>-<variant>-<cuda>-g<sha>`; that was a holdover and is superseded: native releases use the date label,
+  `v0.<YYYYMMDD>.<seq>-<variant>-cu<cuda>` (`gpu_tuned_native_tag`, `ARCHITECTURE.md` E2). The `-` and `_` rule above is
+  about wheel versions, where PEP 440 rewrites them to `.`; a native tag is not normalised, but `-` already separates its
+  version, variant and toolkit fields, so the sequence stays dot-separated.
 
 ## Enforcement
 
