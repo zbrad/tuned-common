@@ -315,6 +315,18 @@ check "publish_release: a good wheel label reaches gh, label suffix ignored" 0 "
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes '$(wl +gb10.cu134.20261011)#torch'; grep -q 'release create v0.20261011.0-gb10-cu134' '${gate}/gh.log'"
 check "publish_release: a non-wheel asset is not label-checked" 0 "-" "OK: published" \
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes 'llama-cpp-1-gb10.tar.gz'"
+# --- smoke: libraries resolve inside the extracted package ---
+sm="$(mktemp -d)"; mkdir -p "${sm}/pkg/lib" "${sm}/other"
+printf 'int foo(void){return 7;}\n' > "${sm}/foo.c"; printf 'int foo(void); int main(void){return foo()==7?0:1;}\n' > "${sm}/main.c"
+gcc -shared -fPIC -Wl,-soname,libfoo-tuned.so -o "${sm}/pkg/lib/libfoo-tuned.so" "${sm}/foo.c"
+cp "${sm}/pkg/lib/libfoo-tuned.so" "${sm}/other/libfoo-tuned.so"
+gcc -o "${sm}/main" "${sm}/main.c" -L"${sm}/other" -lfoo-tuned -Wl,-rpath,"${sm}/other"
+check "resolves_in: a library found inside the package passes" 0 "-" "-" "${pre}; gpu_tuned_verify_resolves_in '${sm}/pkg' '${sm}/main' '^libfoo-tuned'"
+check "resolves_in: a library absent from the package resolves outside and is refused" 1 "resolves outside" "-" \
+  "${pre}; mkdir -p '${sm}/empty/lib'; gpu_tuned_verify_resolves_in '${sm}/empty' '${sm}/main' '^libfoo-tuned'"
+check "resolves_in: a regex that matches nothing is refused" 1 "does not list a library" "-" \
+  "${pre}; gpu_tuned_verify_resolves_in '${sm}/pkg' '${sm}/main' '^libnothing'"
+rm -rf "${sm}"
 check "release_tag: a native date tag passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v0.20261011.0-gb10-cu134"
 check "release_tag: a native date tag with a sequence passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v0.20261011.3-gb10-cu134"
 check "release_tag: a wheel tag with a date label passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v2.15.0+gb10.cu134.20261011"

@@ -905,6 +905,34 @@ gpu_tuned_check_release_tag() {
     return 1
 }
 
+# gpu_tuned_verify_resolves_in <dir> <elf> <lib-regex>... -- the smoke-test proof that an extracted
+# package is what runs: with <dir>/lib (and <dir>/lib64) first on LD_LIBRARY_PATH, every
+# <lib-regex> (matched against the library's file name) must resolve, by ldd, to a file inside
+# <dir>, never to a build tree or a stock install. LD_LIBRARY_PATH outranks a binary's RUNPATH, so
+# a test binary built against the build tree still shows whether the package's copy is picked.
+# Fails loudly naming the library and where it resolved. Extra LD_LIBRARY_PATH entries (the
+# toolkit's) may be passed in GPU_TUNED_SMOKE_LD_EXTRA.
+gpu_tuned_verify_resolves_in() {
+    local dir="${1:-}" elf="${2:-}" re resolved line rc=0
+    shift 2 || true
+    if [[ ! -d "${dir}" || ! -f "${elf}" || $# -eq 0 ]]; then
+        echo "ERROR: gpu_tuned_verify_resolves_in: need <dir> <elf> <lib-regex>... (got dir='${dir}' elf='${elf}')." >&2
+        return 1
+    fi
+    resolved="$(LD_LIBRARY_PATH="${dir}/lib:${dir}/lib64${GPU_TUNED_SMOKE_LD_EXTRA:+:${GPU_TUNED_SMOKE_LD_EXTRA}}" ldd "${elf}" 2>&1)" || true
+    for re in "$@"; do
+        line="$(printf '%s\n' "${resolved}" | awk -v re="${re}" '$1 ~ re {print; exit}')"
+        if [[ -z "${line}" ]]; then
+            echo "ERROR: gpu_tuned_verify_resolves_in: ${elf##*/} does not list a library matching '${re}'." >&2
+            rc=1
+        elif [[ "${line}" != *"=> ${dir}/"* ]]; then
+            echo "ERROR: gpu_tuned_verify_resolves_in: ${elf##*/}: '${re}' resolves outside ${dir}: ${line}" >&2
+            rc=1
+        fi
+    done
+    return "${rc}"
+}
+
 # gpu_tuned_smoke_wheel <wheel> <dist-name> <import-name> [<stamp-section> <stamp-library>]
 # -- install a built wheel into a CLEAN throwaway venv and load it once, before anything is
 # published. Nothing from the build tree, the build venv or the repo is on the path: the probe
