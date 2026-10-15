@@ -327,6 +327,17 @@ check "resolves_in: a library absent from the package resolves outside and is re
 check "resolves_in: a regex that matches nothing is refused" 1 "does not list a library" "-" \
   "${pre}; gpu_tuned_verify_resolves_in '${sm}/pkg' '${sm}/main' '^libnothing'"
 rm -rf "${sm}"
+# --- newest release tag ---
+nt="v26.12-gb10-cu134-g0fa8a51f\nv0.20261015.2-gb10-cu134\nv0.20261015.10-gb10-cu134\nv0.20261016.0-gb10-cu133\nv0.20261014.0-gb10-cu134"
+check "newest_tag: a sequence ranks as a number (.10 above .2), not by list order" 0 "-" "^v0\\.20261015\\.10-gb10-cu134$" \
+  "${pre}; printf '${nt}\n' | gpu_tuned_newest_release_tag gb10 cu134"
+check "newest_tag: another toolkit's tag is not picked" 0 "-" "^v0\\.20261016\\.0-gb10-cu133$" \
+  "${pre}; printf '${nt}\n' | gpu_tuned_newest_release_tag gb10 cu133"
+check "newest_tag: a date-label tag beats an older-form tag listed first" 0 "-" "^v0\\.20261015" \
+  "${pre}; printf 'v26.12-gb10-cu134-g0fa8a51f\nv0.20261015.0-gb10-cu134\n' | gpu_tuned_newest_release_tag gb10 cu134"
+check "newest_tag: with no date-label tag it falls back to the older form, noting it" 0 "-" "older-form tag v26.12-gb10-cu134-g0fa8a51f" \
+  "${pre}; printf 'v26.12-gb10-cu134-g0fa8a51f\nv26.12-gb10-cu134-g3a508503\n' | gpu_tuned_newest_release_tag gb10 cu134 2>&1"
+check "newest_tag: no matching tag returns 1" 1 "." "-" "${pre}; printf 'v0.20261015.0-rtx50-cu134\n' | gpu_tuned_newest_release_tag gb10 cu134"
 check "release_tag: a native date tag passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v0.20261011.0-gb10-cu134"
 check "release_tag: a native date tag with a sequence passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v0.20261011.3-gb10-cu134"
 check "release_tag: a wheel tag with a date label passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v2.15.0+gb10.cu134.20261011"

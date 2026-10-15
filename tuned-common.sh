@@ -933,6 +933,39 @@ gpu_tuned_verify_resolves_in() {
     return "${rc}"
 }
 
+# gpu_tuned_newest_release_tag <variant> <cuda-tag> -- reads release tags on stdin (one per line, newest
+# first, as `gh release list` prints them) and prints the newest native tag for that variant and
+# toolkit: the highest v0.<YYYYMMDD>.<seq>-<variant>-<cuda-tag>, ranked by date then sequence as numbers
+# (.10 above .2), never by list order. A tag in an older form (v<ver>-<variant>-<cuda>[-g<sha>]) is never
+# preferred over a date-label one; with no date-label tag it falls back to the first older-form tag, with
+# a NOTE on stderr, so a consumer keeps working until a date-label release exists (ARCHITECTURE.md E7).
+# Prints nothing and returns 1 if no tag matches at all.
+gpu_tuned_newest_release_tag() {
+    local variant="${1:-}" cuda="${2:-}" t label key best="" bestkey="" legacy=""
+    local tags=()
+    if [[ ! "${variant}" =~ ^[a-z][a-z0-9]*$ || ! "${cuda}" =~ ^cu[0-9]+$ ]]; then
+        echo "ERROR: gpu_tuned_newest_release_tag: need <variant> <cuNNN>, got '${variant}' '${cuda}'." >&2
+        return 1
+    fi
+    while IFS= read -r t; do tags+=("${t}"); done
+    for t in "${tags[@]}"; do
+        if [[ "${t}" == "v0."*"-${variant}-${cuda}" ]]; then
+            label="$(gpu_tuned_date_label "${t}")"
+            [[ -n "${label}" ]] || continue
+            key="$(printf '%s %012d' "${label%%.*}" "$(gpu_tuned_label_seq "${label}")")"
+            if [[ -z "${bestkey}" || "${key}" > "${bestkey}" ]]; then best="${t}"; bestkey="${key}"; fi
+        elif [[ -z "${legacy}" && "${t}" =~ ^v[0-9].*-${variant}-${cuda}(-g[0-9a-f]+)?$ ]]; then
+            legacy="${t}"
+        fi
+    done
+    if [[ -n "${best}" ]]; then printf '%s\n' "${best}"; return 0; fi
+    if [[ -n "${legacy}" ]]; then
+        echo "NOTE: no date-label ${variant}-${cuda} release exists; using the older-form tag ${legacy}." >&2
+        printf '%s\n' "${legacy}"; return 0
+    fi
+    return 1
+}
+
 # gpu_tuned_smoke_wheel <wheel> <dist-name> <import-name> [<stamp-section> <stamp-library>]
 # -- install a built wheel into a CLEAN throwaway venv and load it once, before anything is
 # published. Nothing from the build tree, the build venv or the repo is on the path: the probe
