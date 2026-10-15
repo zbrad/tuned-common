@@ -310,15 +310,26 @@ check "verify_venv: a real version mismatch is still refused" 1 "does not match"
 rm -rf "${vv}"
 rm -rf "${nt}"
 check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \
-  "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r tag title notes 'torch-2.15.0-cp314-cp314-linux_aarch64.whl#w' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"
+  "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes 'torch-2.15.0-cp314-cp314-linux_aarch64.whl#w' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"
 check "publish_release: a good wheel label reaches gh, label suffix ignored" 0 "-" "OK: published" \
-  "${pre}; ${ingate}; gpu_tuned_publish_release o/r tag title notes '$(wl +gb10.cu134.20261011)#torch'; grep -q 'release create tag' '${gate}/gh.log'"
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes '$(wl +gb10.cu134.20261011)#torch'; grep -q 'release create v0.20261011.0-gb10-cu134' '${gate}/gh.log'"
 check "publish_release: a non-wheel asset is not label-checked" 0 "-" "OK: published" \
-  "${pre}; ${ingate}; gpu_tuned_publish_release o/r tag title notes 'llama-cpp-1-gb10.tar.gz'"
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes 'llama-cpp-1-gb10.tar.gz'"
+check "release_tag: a native date tag passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v0.20261011.0-gb10-cu134"
+check "release_tag: a native date tag with a sequence passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v0.20261011.3-gb10-cu134"
+check "release_tag: a wheel tag with a date label passes" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v2.15.0+gb10.cu134.20261011"
+check "release_tag: the sha form is refused" 1 "carries no date label" "-" "${pre}; gpu_tuned_check_release_tag v26.12-gb10-cu134-g0fa8a51f"
+check "release_tag: a commit-count tag is refused" 1 "carries no date label" "-" "${pre}; gpu_tuned_check_release_tag v11258-gb10-cu133"
+check "release_tag: an impossible date is refused" 1 "carries no date label" "-" "${pre}; gpu_tuned_check_release_tag v0.20260230.0-gb10-cu134"
+check "release_tag: a hyphenated sequence is refused" 1 "carries no date label" "-" "${pre}; gpu_tuned_check_release_tag v0-20261011-0-gb10-cu134"
+check "release_tag: the counter form passes only with the override, loudly" 0 "-" "carries no date label" \
+  "${pre}; GPU_TUNED_ALLOW_COUNTER_LABEL=1 gpu_tuned_check_release_tag v11258-gb10-cu133 2>&1"
+check "publish_release: a sha-form tag is refused before gh is called" 1 "carries no date label" "-" \
+  "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r v26.12-gb10-cu134-g0fa8a51f title notes 'a.tar.gz#a' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"
 check "publish_release: a dirty tree is refused before gh is ever called" 1 "dirty tree" "-" \
-  "${pre}; ${ingate}; echo 2 >> tracked; rc=0; gpu_tuned_publish_release o/r tag title notes asset || rc=\$?; git checkout -q tracked; [ ! -s '${gate}/gh.log' ] && exit \$rc"
-check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r@tag" \
-  "${pre}; ${ingate}; gpu_tuned_publish_release o/r tag title notes asset; grep -q 'release create tag' '${gate}/gh.log'"
+  "${pre}; ${ingate}; echo 2 >> tracked; rc=0; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset || rc=\$?; git checkout -q tracked; [ ! -s '${gate}/gh.log' ] && exit \$rc"
+check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r@v0.20261011.0-gb10-cu134" \
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset; grep -q 'release create v0.20261011.0-gb10-cu134' '${gate}/gh.log'"
 rm -rf "${gate}"
 
 # --- date-form wheel label ---
