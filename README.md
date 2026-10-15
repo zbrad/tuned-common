@@ -5,6 +5,9 @@ fleet: `pytorch`, `llama.cpp`, `flash-attention`, `flashinfer`, `raft`,
 `cuvs`, `faiss`, and downstream consumers that install a tuned torch wheel
 into their own venv (`vllm`, `ComfyUI`, `open-webui`, ...).
 
+**Design:** `docs/ARCHITECTURE.md` is the single design for how tuned repos build, test, package,
+release and version, as numbered, checkable requirements; a repo's compliance is measured against it.
+
 ## Usage
 
 Vendor a pinned copy into your repo (don't fetch at build time — keeps

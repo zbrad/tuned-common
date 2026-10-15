@@ -1,5 +1,7 @@
 # Wheel version style for tuned builds
 
+Part of the fleet design in `ARCHITECTURE.md` (requirements E1-E8); this file holds the detail and the research.
+
 **Rule (current, user decision 2026-10-11):** every tuned wheel carries this PEP 440
 local-version label, built only by `gpu_tuned_local_version_dated` (in
 `tuned-common.sh`), never by hand:
