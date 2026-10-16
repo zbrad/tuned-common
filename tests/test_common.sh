@@ -851,6 +851,57 @@ check "load_toolkit: the real data dir defines cu133 and cu134 and picks neither
   "${pre}; export GPU_TUNED_PLATFORM=aarch64; D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; [ -f \"\$D/toolkits/cu133.env\" ] && [ -f \"\$D/toolkits/cu134.env\" ] && gpu_tuned_load_toolkit \"\$D\" gb10"
 check "load_toolkit: no id and no toolkit files is an error" 1 "none defined" "-" \
   "${pre}; mkdir -p '${tk}/empty/toolkits'; gpu_tuned_load_toolkit '${tk}/empty' gb10"
+# every real toolkit file must answer the NCCL question (a pinned system version, or "none"), so a new toolkit cannot be added without deciding it
+check "toolkit files: every toolkit defines TOOLKIT_NCCL_VERSION (a version, or none)" 0 "-" "^ok$" \
+  "D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; bad=0; for f in \"\$D\"/toolkits/*.env; do b=\$(basename \$f .env); case \$b in *-cu*) continue;; esac; grep -qE '^TOOLKIT_NCCL_VERSION=\"[^\"]+\"' \$f || { echo \"missing in \$f\" >&2; bad=1; }; done; [ \$bad -eq 0 ] && echo ok"
+check "verify_toolkit: TOOLKIT_NCCL_VERSION=none skips the system NCCL check and says so" 0 "-" "no system NCCL" \
+  "${pre}; mkdir -p '${tk}/n/bin'; printf '#!/bin/sh\\necho \"Cuda compilation tools, release 99.9, V99.9.1\"\\n' > '${tk}/n/bin/nvcc'; chmod +x '${tk}/n/bin/nvcc'; TOOLKIT_ID=cu999 TOOLKIT_CUDA_HOME='${tk}/n' CUDA_HOME='${tk}/n' TOOLKIT_NVCC_RELEASE=99.9 TOOLKIT_NCCL_VERSION=none gpu_tuned_verify_toolkit"
+# bundled CUDA flavour (dpkg stubbed on PATH)
+mkdir -p "${tk}/stubs"
+cat > "${tk}/stubs/dpkg" <<'EOF'
+#!/bin/sh
+[ "$1" = "-S" ] && { case "$2" in *libnccl*) echo "libnccl2:arm64: $2";; *libplain*) echo "libplain:arm64: $2";; esac; exit 0; }
+exit 1
+EOF
+cat > "${tk}/stubs/dpkg-query" <<'EOF'
+#!/bin/sh
+case "$3" in libnccl2) printf '2.31.2-1+cuda13.3';; libplain) printf '1.0-1';; esac
+EOF
+chmod +x "${tk}/stubs/dpkg" "${tk}/stubs/dpkg-query"; : > "${tk}/libnccl.so.2"; : > "${tk}/libplain.so.1"
+check "bundled_cuda_flavor: a package built for another CUDA is refused, naming both" 1 "libnccl2 2.31.2-1\\+cuda13.3, built for CUDA 13.3, but this package is for CUDA 13.4" "-" \
+  "PATH='${tk}/stubs':\$PATH; ${pre}; gpu_tuned_verify_bundled_cuda_flavor 13.4 '${tk}/libnccl.so.2'"
+check "bundled_cuda_flavor: the matching CUDA flavour passes" 0 "-" "-" \
+  "PATH='${tk}/stubs':\$PATH; ${pre}; gpu_tuned_verify_bundled_cuda_flavor 13.3 '${tk}/libnccl.so.2'"
+check "bundled_cuda_flavor: a package with no CUDA flavour is not judged" 0 "-" "-" \
+  "PATH='${tk}/stubs':\$PATH; ${pre}; gpu_tuned_verify_bundled_cuda_flavor 13.4 '${tk}/libplain.so.1'"
+check "bundled_cuda_flavor: a bad CUDA version argument is refused" 1 "must look like 13.4" "-" "${pre}; gpu_tuned_verify_bundled_cuda_flavor 134 '${tk}/libplain.so.1'"
+# fetch (gh stubbed: builds a release tarball in the shape zbrad/nccl publishes)
+cat > "${tk}/stubs/gh" <<'EOF'
+#!/bin/bash
+# gh release download <tag> --repo zbrad/nccl --pattern ... --pattern ... --dir <dir>
+tag="$3"; dir=""; while [ $# -gt 0 ]; do [ "$1" = "--dir" ] && dir="$2"; shift; done
+[ -n "${FAKE_GH_FAIL:-}" ] && exit 1
+w="$(mktemp -d)"; n="nccl-tuned-2.30.7-gb10-cu134-20261012"; mkdir -p "$w/$n/lib" "$w/$n/include"
+: > "$w/$n/lib/libnccl_static.a"; : > "$w/$n/include/nccl.h"
+echo "tag=${FAKE_GH_TAG:-$tag}" > "$w/$n/BUILD_INFO"
+tar -czf "$dir/$n.tar.gz" -C "$w" "$n"
+(cd "$dir" && sha256sum "$n.tar.gz" > "$n.tar.gz.sha256")
+[ -n "${FAKE_GH_BADSUM:-}" ] && echo "0000  $n.tar.gz" > "$dir/$n.tar.gz.sha256"
+exit 0
+EOF
+chmod +x "${tk}/stubs/gh"
+check "fetch_nccl: downloads, verifies and extracts into dest" 0 "-" "^ok$" \
+  "PATH='${tk}/stubs':\$PATH; ${pre}; gpu_tuned_fetch_nccl_release v0.20261012.0-gb10-cu134 '${tk}/b/cu134/nccl/v0.20261012.0-gb10-cu134' 2>/dev/null && [ -f '${tk}/b/cu134/nccl/v0.20261012.0-gb10-cu134/lib/libnccl_static.a' ] && [ \"\$(cat '${tk}/b/cu134/nccl/v0.20261012.0-gb10-cu134/.tag')\" = v0.20261012.0-gb10-cu134 ] && echo ok"
+check "fetch_nccl: a destination already holding the tag is left alone (no gh call)" 0 "-" "^ok$" \
+  "PATH='${tk}/stubs':\$PATH; FAKE_GH_FAIL=1; export FAKE_GH_FAIL; ${pre}; gpu_tuned_fetch_nccl_release v0.20261012.0-gb10-cu134 '${tk}/b/cu134/nccl/v0.20261012.0-gb10-cu134' && echo ok"
+check "fetch_nccl: a checksum mismatch is refused and leaves nothing behind" 1 "does not match its published sha256" "-" \
+  "PATH='${tk}/stubs':\$PATH; FAKE_GH_BADSUM=1; export FAKE_GH_BADSUM; ${pre}; gpu_tuned_fetch_nccl_release vX '${tk}/c/cu134/nccl/vX'; rc=\$?; [ ! -e '${tk}/c/cu134/nccl/vX' ]; exit \$rc"
+check "fetch_nccl: a BUILD_INFO naming another tag is refused" 1 "does not say tag=" "-" \
+  "PATH='${tk}/stubs':\$PATH; FAKE_GH_TAG=other; export FAKE_GH_TAG; ${pre}; gpu_tuned_fetch_nccl_release vY '${tk}/d/cu134/nccl/vY'"
+check "fetch_nccl: a destination without an nccl component is refused" 1 "no /nccl/ component" "-" \
+  "PATH='${tk}/stubs':\$PATH; ${pre}; gpu_tuned_fetch_nccl_release v1 '${tk}/e/somewhere/v1'"
+check "fetch_nccl: a failed download is an error" 1 "could not download" "-" \
+  "PATH='${tk}/stubs':\$PATH; FAKE_GH_FAIL=1; export FAKE_GH_FAIL; ${pre}; gpu_tuned_fetch_nccl_release vZ '${tk}/f/cu134/nccl/vZ'"
 check "load_toolkit: a <variant>-<toolkit>.env overrides the base file" 0 "-" "^98\\.0$" \
   "${lt} gb10 cu999; echo \"\${TOOLKIT_NVCC_RELEASE}\""
 check "load_toolkit: the base file applies when no variant file exists" 0 "-" "^99\\.9$" \

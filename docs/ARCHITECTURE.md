@@ -57,6 +57,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | A3 | `tuned/env.sh` sources `common.sh`, asserts the platform, loads the toolkit with `gpu_tuned_load_toolkit` and verifies it (`gpu_tuned_verify_toolkit`), and loads repo settings with `gpu_tuned_load_repo_env` from `tuned/repo.env`. | All | read `env.sh` | README |
 | A4 | `tuned/repo.env` only adds repo-specific keys; it never sets a device, toolkit or `CUDA_*` value. | All | `gpu_tuned_load_repo_env` fails loudly on any such key | README |
 | A5 | The ERR trap is left on (`GPU_TUNED_NO_ERR_TRAP` unset). | All | grep | VERSIONING.md |
+| A6 | Every `toolkits/<id>.env` defines every key, including `TOOLKIT_NCCL_VERSION` (a pinned system version, or `none` when no system NCCL is supported for that toolkit), so adding a toolkit forces the question to be answered. | All | `tests/test_common.sh` checks it | found 2026-10-16: cu134 shipped a libnccl built for 13.3 because the key was simply absent |
 
 ### B. Entry points and stage order
 
@@ -130,6 +131,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | H4 | A package check that cannot run is a failure, not a skip (a check that errors out silently passes nothing). Regexes use portable tools; a gate is proven by showing it fails on a bad input. | All | negative test recorded | found 2026-10-15 (llama.cpp RUNPATH `grep -P`) |
 | H6 | `package.sh` refuses to package a build made from other source than HEAD: the commit the build (or its test log) records may differ from HEAD only in `tuned/`. | N | gate present | practice 2026-10-15 (raft: build-tree lib stamp; cuvs, faiss: test-log commit) |
 | H7 | The shipped binaries carry the JSON build info (section 3, "Build info"): one line of strict JSON in `.tuned_build_info`, written with `gpu_tuned_embed_build_info_json` on the staged copies, readable with `gpu_tuned_read_build_info | jq`, verified after any rewrite (`gpu_tuned_verify_build_info_json`), and shipped as `BUILD_INFO.json` beside the binaries where the tarball is installed by a script. The older free-text stamp is accepted until a repo migrates. | N, W | `jq .release` on a shipped binary | user 2026-10-15 ("semi json ... traceability"); llama.cpp migrated |
+| H8 | A system library a package bundles must have the CUDA flavour of the toolkit it is for (`gpu_tuned_verify_bundled_cuda_flavor`: a `+cuda13.3` Debian package in a cu134 package is refused). NCCL for a toolkit with `TOOLKIT_NCCL_VERSION=none` comes from a pinned `zbrad/nccl` release (`tuned/nccl.pins`, `gpu_tuned_fetch_nccl_release`), linked statically, never from the host. | N | package gate present | found 2026-10-16 (llama.cpp cu134) |
 | H5 | `package.sh` writes a DRAFT release-notes file if the tracked notes do not exist; it does not finalise them. | N | draft banner | practice 2026-10-15 |
 
 ### I. Release
