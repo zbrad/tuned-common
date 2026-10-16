@@ -87,9 +87,9 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 | E1 | A wheel carries `<public version>+<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]`, built only by `gpu_tuned_local_version_dated`/`gpu_tuned_build_local_version`, never by hand. The public version is upstream's. | W | `gpu_tuned_date_label` parses the wheel name | VERSIONING.md (user decision 2026-10-11) |
 | E2 | A native release tag is `v0.<YYYYMMDD>.<seq>-<variant>-<cuda-tag>` (the sequence always written, `0` for the first), built by `gpu_tuned_native_tag`. | N | `gpu_tuned_date_label <tag>` returns a label | VERSIONING.md; `docs/upstream-vs-tuned-versions.json` `scheme.native_tag`; user 2026-10-15 ("back to UTC dates ... build count per date") |
 | E3 | The date is the UTC committer date of the tuned `HEAD` (`gpu_tuned_head_date`); the sequence is the lowest unused for that date among the repo's tags (`gpu_tuned_allocate_date_label`). Never the wall clock, never a commit count or a sha. | All | read the label source | VERSIONING.md |
-| E4 | The label is allocated once, at packaging, and recorded in `package-info.txt` with the full tag; `release.sh`, the tarball name, the notes file name and the title read it from there and never recompute it (a notes commit moves `HEAD` and its date). | N | `package-info.txt` has `release_tag=`; `release.sh` reads it | practice 2026-10-15 (llama.cpp) |
+| E4 | The label is allocated once, at the earliest stage that bakes it into an artifact, and recorded in a file the later stages read: `package-info.txt` for native tarballs whose identity is stamped at packaging (raft, cuvs, faiss), `<build>/release-label` for llama.cpp, whose label is compiled into the binary at build time, and the wheel script for wheels. Later stages never recompute it (a notes commit moves `HEAD` and its date). Nothing reserves a label before publish, so the full commit stays in the build info and the release gate checks the tag is free. | N, W | the recorded file; `release.sh` reads it | practice 2026-10-15 (llama.cpp, user: "build info ... release version more relevant") |
 | E5 | Tag, tarball name, release title, notes file name and the artifact's own metadata show the same label. | All | compare | VERSIONING.md |
-| E6 | A commit count may be reported (e.g. a binary's `--version`) and checked, but identifies nothing. | All | grep `rev-list --count` outside a version check | user 2026-10-15; decisions/2026-09-10 superseded |
+| E6 | A commit count may be reported and checked, but identifies nothing: it is repo-relative (llama.cpp's `--version` "build N" is this fork's history count, not upstream's) and rises with every commit. It appears only as `fork.commit_count` in the build info. | All | grep `rev-list --count` outside a version check | user 2026-10-15; decisions/2026-09-10 superseded |
 | E7 | Releases published in an older form are not renamed (consumers pin URLs). Consumers accept both forms and rank any date-label tag above an older one. | All | consumer tag parsers | VERSIONING.md; practice 2026-10-15 (llama.cpp `install.sh`) |
 | E8 | Tooling refuses a wrong identity before `gh`: `gpu_tuned_publish_release` checks every release tag (`gpu_tuned_check_release_tag`: a native or wheel date label, else refused) and every `.whl` asset's label. `GPU_TUNED_ALLOW_COUNTER_LABEL=1` lets a not-yet-migrated repo publish an older form, loudly. | All | `tests/test_common.sh` (release_tag, publish_release cases) | tuned-common d17e0f9, 2026-10-15 |
 
@@ -110,6 +110,7 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 | G2 | Tests resolve libraries from this toolkit only: the toolkit lib dir first on `LD_LIBRARY_PATH` (`gpu_tuned_verify_toolkit_libs`), nothing pip-installed into site-packages, and the mapped-library check for Python repos. | N, W | gate present | tuned-common README; faiss `full_test.sh` |
 | G3 | A suite that is expensive or needs network still runs in full for a release. A narrower gate is a recorded decision, not a default. | All | log lists test count | user 2026-10-15 (llama.cpp ctest, all labels) |
 | G5 | A package smoke test (`tuned/smoke_test.sh`) extracts the tarball and runs at least three real tests from the repo against the package's own libraries, after a sha256 check and, where there is a CMake package, a consumer configure. That the package's libraries are the ones running is proved, not assumed (`gpu_tuned_verify_resolves_in`, or the mapped libraries of an import). Its log is `SMOKE_RESULTS_<variant>.log`; **a pass needs positive evidence** (the run reached its end marker), so an abort cannot read as a pass. | N | log and marker present | user 2026-10-15 ("run 1-3 tests ... that the repackaged version is working"); raft, cuvs, faiss |
+| G6 | A label-only change needs the same tested commit, mechanical proof that nothing but the label (and derived sections such as the build id) differs from the tested build, the package checks, a smoke test and the gates; not the full suite. Where the label is compiled in it is a fixed-width buffer and the proof is a section-by-section comparison of every ELF file (llama.cpp: `tuned/relabel.sh` + `tuned/elf_section_diff.py`, a valid `relabel.json` standing in for a test log newer than the build); where it is not, a repackage is the whole change. | N | `relabel.json` or a repackage | user 2026-10-15 ("a rebuild for label only just needs to pass gates and smoke test"); proven on 110 ELF files of llama.cpp |
 | G4 | Numbers quoted in notes (counts, timings) come from the attached log and name what was skipped. | All | notes vs log | Provenance of Claims (global rules) |
 
 ### H. Packaging
@@ -121,6 +122,7 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 | H3 | Build-info stamping and any rewrite (`patchelf`, `objcopy`) apply to **staged copies**, never to the build tree, so the build tree stays older than its test log. | N | build tree mtimes unchanged by packaging | found 2026-10-15 (llama.cpp) |
 | H4 | A package check that cannot run is a failure, not a skip (a check that errors out silently passes nothing). Regexes use portable tools; a gate is proven by showing it fails on a bad input. | All | negative test recorded | found 2026-10-15 (llama.cpp RUNPATH `grep -P`) |
 | H6 | `package.sh` refuses to package a build made from other source than HEAD: the commit the build (or its test log) records may differ from HEAD only in `tuned/`. | N | gate present | practice 2026-10-15 (raft: build-tree lib stamp; cuvs, faiss: test-log commit) |
+| H7 | The shipped binaries carry the JSON build info (section 3, "Build info"): one line of strict JSON in `.tuned_build_info`, written with `gpu_tuned_embed_build_info_json` on the staged copies, readable with `gpu_tuned_read_build_info | jq`, verified after any rewrite (`gpu_tuned_verify_build_info_json`), and shipped as `BUILD_INFO.json` beside the binaries where the tarball is installed by a script. The older free-text stamp is accepted until a repo migrates. | N, W | `jq .release` on a shipped binary | user 2026-10-15 ("semi json ... traceability"); llama.cpp migrated |
 | H5 | `package.sh` writes a DRAFT release-notes file if the tracked notes do not exist; it does not finalise them. | N | draft banner | practice 2026-10-15 |
 
 ### I. Release
@@ -141,6 +143,28 @@ Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tu
 | J2 | Forks run no repo git hooks, have Actions disabled when public, and an upstream's agent rule files are never loaded. | forks | `gh api .../actions/permissions`; hook dispatcher | global CLAUDE.md |
 | J3 | No real hostnames in public repos or release notes (`geo-<g>-node-<variant>-<n>`). | All | grep | global CLAUDE.md |
 | J4 | Docs describe the flow (`docs/.../release.md` or `tuned/README`) and are updated in the same slice as the scripts. | All | doc names the scripts that exist | practice |
+
+### Build info
+
+The identity of a shipped artifact must be readable from the artifact. One line of strict JSON in the ELF section
+`.tuned_build_info` (and `BUILD_INFO.json` beside the files of a tarball an installer lays out), schema
+`tuned-build-info/1`, keys in lower case, dotted names nesting:
+
+| Field | Meaning |
+|---|---|
+| `release` | the identity: the native tag or wheel label (E2), first in the object |
+| `package`, `component` | the project and the file stamped (`llama.cpp`, `llama-server-tuned`) |
+| `variant`, `hardware`, `arch` | `gb10`, its release-title label, `sm_121a` |
+| `cuda.tag`, `cuda.version`, `cuda.nvcc` | `cu133`, `13.3`, the exact nvcc (`13.3.73`) |
+| `fork.url`, `fork.commit`, `fork.dirty`, `fork.commit_count` | this repo, the full 40-hex commit, tracked files differing from it, the repo-relative count (information only, E6) |
+| `upstream.url`, `.ref`, `.base`, `.nearest_tag`, `.declared_version` | the declared upstream ref (null if undeclared), the merge-base, the nearest upstream tag with distance, the version upstream's source declares |
+| `deps.*` | what the artifact bundles or was built from, per repo (llama.cpp: `deps.ui.name`, `.tarball_sha256`) |
+| `built` | UTC time of stamping |
+
+Not in it: the tarball's sha256 and the test results, which cannot exist before the artifact does; they live in
+`package-info.txt` and the release. Writing is only through `gpu_tuned_build_info_json` (python3's `json`; never
+hand-built); reading through `gpu_tuned_read_build_info`, which wraps a legacy text stamp as JSON so old artifacts
+stay readable.
 
 ## 4. Applicability by repo (as understood 2026-10-15)
 
@@ -193,9 +217,12 @@ are what was already in view.
   `docs/upstream-vs-tuned-versions.json`; not re-checked).
 - **E7 / consumers:** zbrad/ollama `scripts/precheck-tuned.sh` and `scripts/lib/llama-cpp-release.sh` match only
   `v<N>-<variant>-cu<N>` and will not see a date-label llama.cpp release. Recorded as a future todo.
-- **llama.cpp:** `install.sh` pins `REPO_REF=tuning-v30`, not the date form its release docs and gate require; it has not yet synced
-  the E8 gate nor added a smoke test (G5; starting the server from the extracted tarball is the natural one); its package check is
-  otherwise as H1.
+- **llama.cpp:** done 2026-10-15: release label compiled in at build time (five-line patch to `common/build-info.cpp.in`, `--version`
+  only), JSON build info (H7) with `BUILD_INFO.json`, `install.sh` fetching helper files from the release tag (no `tuning-*` source tag
+  or pin), `install.sh`-based smoke test (G5), `relabel.sh` (G6), tuned-common synced (E8). Open: the Patch B idea (a `release` field in
+  `/props`), and that `--version` build is still the fork's commit count (E6: information only).
+- **H7 elsewhere:** raft, cuvs and faiss still stamp the free-text form (raft's `package.sh` reads `@ <sha>` from it) and do not ship
+  `BUILD_INFO.json`; the wheel repos stamp their own forms. Migrate one at a time with the reader changed first.
 - **C2:** faiss and llama.cpp use their own trees (open). **F4:** undecided.
 - **H6 is weaker where the build records no commit:** cuvs and faiss use the test log's commit, which proves what was tested, not what
   was built.
