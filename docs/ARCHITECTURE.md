@@ -18,14 +18,13 @@ shorter rule elsewhere disagree, fix one of them: do not leave both.
   A build uses exactly one variant and one toolkit.
 - **native repo**: ships a tarball of binaries/libraries (raft, cuvs, faiss, llama.cpp, nccl,
   ollama). **wheel repo**: ships Python wheels (pytorch, vllm, flash-attention,
-  flash-attention-vllm, flashinfer). **deployment repo**: installs tuned artifacts and
-  also provides a frozen deployment of particular releases as pre-built binaries (ComfyUI, open-webui). That is the user's
-  statement (2026-10-15), which corrected an earlier reading of these two as consumers that publish nothing. A web search the same
-  day (attributed, not run here) confirms the upstream projects do ship such deployments: ComfyUI a Windows portable build and a
-  desktop app (docs.comfy.org; the search did not confirm an official ComfyUI Docker image), Open WebUI official container images
-  at `ghcr.io/open-webui/open-webui` with `vX.Y.Z` and `git-<sha>` tags (docs.openwebui.com/deployment/docker-images). Those are upstream's,
-  not zbrad's: I have not found what the zbrad forks publish (open-webui's GitHub releases carry upstream's release notes and no assets,
-  ComfyUI lists none), so what a fleet deployment is and where it is published is to be recorded here. Applicability below uses these words.
+  flash-attention-vllm, flashinfer). **deployment repo**: installs tuned artifacts and is intended to
+  provide a frozen deployment of particular releases as pre-built binaries (ComfyUI, open-webui). The fleet has **not built any yet**
+  (user, 2026-10-15); only what upstream does is precedent. A web search the same day (attributed, not run here) found: ComfyUI ships a
+  Windows portable build and a desktop app (docs.comfy.org; no official Docker image was confirmed); Open WebUI ships official container
+  images at `ghcr.io/open-webui/open-webui` with `vX.Y.Z` and `git-<sha>` tags (docs.openwebui.com/deployment/docker-images). The
+  zbrad forks' GitHub releases publish nothing of their own (open-webui's mirror upstream's notes with no assets, ComfyUI lists none).
+  What a fleet deployment is (archive, container image, both) and where it is published are open, to be decided when the first is built. Applicability below uses these words.
 - **label**: `<YYYYMMDD>[.<seq>]`, the build identity (section 5).
 - **vendored**: a pinned copy of tuned-common files committed in the consumer repo.
 
@@ -182,7 +181,7 @@ stay readable.
 | nccl | N | build/package/release scripts; not re-audited |
 | ollama | N | consumes llama.cpp releases; own tags |
 | pytorch, flash-attention, flash-attention-vllm, flashinfer, vllm | W | E1; B2 |
-| ComfyUI, open-webui | D | A and J today. Because they ship frozen deployments of particular releases as binaries, the identity, pairing and release requirements apply to whatever they publish: which dependency releases a deployment pins (D3), its own label (E), build info (H7) with the pinned releases under `deps`, a smoke test of the deployment as installed (G5), and the release gates (I). To be measured once their published form is recorded. |
+| ComfyUI, open-webui | D (planned) | A and J today; no deployment exists to measure. When the first is built, the identity, pairing and release requirements apply to it: which dependency releases the deployment pins (D3), its own label (E), build info (H7) with the pinned releases under `deps`, a smoke test of the deployment as installed (G5), and the release gates (I). |
 
 ## 5. Identity, worked
 
@@ -232,7 +231,7 @@ are what was already in view.
 - **C2:** faiss and llama.cpp use their own trees (open). **F4:** undecided.
 - **H6 is weaker where the build records no commit:** cuvs and faiss use the test log's commit, which proves what was tested, not what
   was built.
-- **Not measured at all:** nccl, ollama, the wheel repos against B2/G/H/I, ComfyUI, open-webui (their published deployments are not yet located).
+- **Not measured at all:** nccl, ollama, the wheel repos against B2/G/H/I, ComfyUI, open-webui (no deployments built yet).
 
 ## 7. Changing this document
 
