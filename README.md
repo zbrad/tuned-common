@@ -97,11 +97,11 @@ See `tuned-common.sh` itself for full doc comments on each.
   `CUDA_HOME` (never the unversioned `/usr/local/cuda` symlink), the `nvcc` release and the
   library versions the toolkit is built against. `toolkits/<variant>-<id>.env` overrides
   keys where the stack differs per variant. Record only values read from a real install.
-  `toolkits/DEFAULT` (one line, a toolkit id) is the toolkit used when a build names none;
-  without it the highest defined is used. It is `cu133` while `cu134` is defined, so adding a
-  toolkit does not change what an existing consumer builds with when it re-syncs. A repo whose
-  vendored `common.sh` or `sync-common.sh` predates `DEFAULT` ignores it and would pick the
-  highest: set `CUDA_TAG` explicitly there until it is re-synced. `cu134` has no
+  There is **no default toolkit**: a build uses the one it is told to (`CUDA_TAG=cu133` or
+  `CUDA_VER=13.3`). With none named, `gpu_tuned_load_toolkit` fails and lists the defined toolkits;
+  at a terminal it instead asks which of them to use, for that run only, and a script or CI run
+  gets the error. Adding a toolkit therefore never changes what an existing consumer builds with.
+  (An earlier `toolkits/DEFAULT` file is gone; a leftover copy in a consumer is ignored.) `cu134` has no
   `TOOLKIT_NCCL_VERSION` (the installed libnccl2 is the 13.3 build), so do not bundle libnccl2
   from a `cu134` build.
 

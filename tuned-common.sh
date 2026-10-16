@@ -202,29 +202,59 @@ gpu_tuned_verify_cccl_version() {
 # gpu_tuned_load_toolkit <data-dir> <variant> <toolkit-id> — selects a CUDA
 # toolkit from <data-dir>/toolkits/<toolkit-id>.env (e.g. cu133), then
 # sources the optional <data-dir>/toolkits/<variant>-<toolkit-id>.env, which
-# overrides any key. The toolkit is always the one named: there is no default
-# and no "highest defined" or "newest installed" guess, so a build can never
-# silently use a toolkit nobody chose. With no id it fails, listing the
-# toolkits that are defined. An unknown id is an error that lists them too, and
-# an already-set CUDA_HOME that differs from the toolkit's is rejected rather
-# than trusted. It only ever reads the toolkit files, never /usr/local/cuda or
-# what happens to be installed. Exports CUDA_VER, CUDA_TAG, CUDA_HOME,
-# GPU_TUNED_TOOLKIT_LIB_DIR (the toolkit's own targets/<arch>-linux/lib, from
-# GPU_TUNED_PLATFORM when set, else uname -m) and prepends $CUDA_HOME/bin to
-# PATH. It does not check the install: call gpu_tuned_verify_toolkit for that.
+# overrides any key. The toolkit is always one that was named: there is no
+# default and no "highest defined" or "newest installed" guess, so a build can
+# never silently use a toolkit nobody chose. With no id it is an error that
+# lists the defined toolkits (with their CUDA version and whether the install
+# is present) and says how to name one (CUDA_TAG or CUDA_VER). Only when both
+# stdin and stderr are a terminal does it instead ask which of the listed
+# toolkits to use, for this run only; it still never picks one itself, and a
+# script, pipe or CI run (no terminal) gets the error. An unknown id is an
+# error that lists the defined toolkits too, and an already-set CUDA_HOME that
+# differs from the toolkit's is rejected rather than trusted. It only ever
+# reads the toolkit files, never /usr/local/cuda or what happens to be
+# installed. Exports CUDA_VER, CUDA_TAG, CUDA_HOME, GPU_TUNED_TOOLKIT_LIB_DIR
+# (the toolkit's own targets/<arch>-linux/lib, from GPU_TUNED_PLATFORM when
+# set, else uname -m) and prepends $CUDA_HOME/bin to PATH. It does not check
+# the install: call gpu_tuned_verify_toolkit for that.
 gpu_tuned_load_toolkit() {
     local data_dir="$1" variant="$2" tk="${3:-}"
     if [[ -z "${tk}" ]]; then
-        local f listing="" v
+        local f id v home listing="" ids=() n
         for f in "${data_dir}"/toolkits/*.env; do
             [[ -f "${f}" ]] || continue
-            [[ "$(basename "${f}" .env)" == "${variant}-"* ]] && continue   # per-variant override file
+            id="$(basename "${f}" .env)"
+            [[ "${id}" == "${variant}-"* ]] && continue   # per-variant override file
             v="$(sed -n 's/^TOOLKIT_CUDA_VER="\(.*\)"$/\1/p' "${f}" | head -1)"
-            listing+=" $(basename "${f}" .env)(${v:-?})"
+            ids+=("${id}")
+            listing+=" ${id}(${v:-?})"
         done
-        echo "ERROR: gpu_tuned_load_toolkit: no toolkit specified. The toolkit is never defaulted or guessed: name it with CUDA_TAG (e.g. CUDA_TAG=cu133) or CUDA_VER (e.g. CUDA_VER=13.3)." >&2
-        echo "       available toolkits:${listing:- (none defined under ${data_dir}/toolkits)}" >&2
-        return 1
+        if [[ -t 0 && -t 2 && ${#ids[@]} -gt 0 ]]; then
+            echo "No toolkit was specified. Defined toolkits (set CUDA_TAG or CUDA_VER to skip this question):" >&2
+            n=0
+            for id in "${ids[@]}"; do
+                n=$((n + 1))
+                v="$(sed -n 's/^TOOLKIT_CUDA_VER="\(.*\)"$/\1/p' "${data_dir}/toolkits/${id}.env" | head -1)"
+                home="$(sed -n 's/^TOOLKIT_CUDA_HOME="\(.*\)"$/\1/p' "${data_dir}/toolkits/${id}.env" | head -1)"
+                printf '  %d) %s  CUDA %s  %s\n' "${n}" "${id}" "${v:-?}" "$([[ -d "${home}" ]] && echo "installed at ${home}" || echo "NOT installed (${home})")" >&2
+            done
+            local answer
+            read -r -p "Use which toolkit (number or id, empty to cancel)? " answer </dev/stdin || answer=""
+            if [[ "${answer}" =~ ^[0-9]+$ && "${answer}" -ge 1 && "${answer}" -le ${#ids[@]} ]]; then
+                tk="${ids[$((answer - 1))]}"
+            else
+                for id in "${ids[@]}"; do [[ "${answer}" == "${id}" ]] && tk="${id}"; done
+            fi
+            if [[ -z "${tk}" ]]; then
+                echo "ERROR: gpu_tuned_load_toolkit: no toolkit chosen ('${answer}')." >&2
+                return 1
+            fi
+            echo "[toolkit] using ${tk}: chosen at the prompt for this run; set CUDA_TAG=${tk} to skip the question." >&2
+        else
+            echo "ERROR: gpu_tuned_load_toolkit: no toolkit specified. The toolkit is never defaulted or guessed: name it with CUDA_TAG (e.g. CUDA_TAG=cu133) or CUDA_VER (e.g. CUDA_VER=13.3)." >&2
+            echo "       available toolkits:${listing:- (none defined under ${data_dir}/toolkits)}" >&2
+            return 1
+        fi
     fi
     local base="${data_dir}/toolkits/${tk}.env"
     local over="${data_dir}/toolkits/${variant}-${tk}.env"

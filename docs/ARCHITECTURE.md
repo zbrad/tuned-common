@@ -53,7 +53,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
 | A1 | `tuned/common.sh`, `tuned/sync-common.sh` and `tuned/common.sh.sha` are tracked, and `tuned/sync-common.sh check` exits 0 (the vendored copy is tuned-common's current `main`, or a pin the repo states). | All | run the check | README, "Keeping a vendored copy in sync" |
-| A2 | `tuned/common-data/` is vendored (devices, toolkits, `toolkits/DEFAULT`), refreshed by the same sync; the repo's own `sync-common.sh` is current (an old one skips new data files such as `DEFAULT`). | All | `diff tuned/sync-common.sh <tuned-common>/sync-common.sh`; `ls tuned/common-data/toolkits/DEFAULT` | README; found 2026-10-15 |
+| A2 | `tuned/common-data/` is vendored (devices, toolkits), refreshed by the same sync; the repo's own `sync-common.sh` is current (an old one skips new data files). | All | `diff tuned/sync-common.sh <tuned-common>/sync-common.sh`; `ls tuned/common-data/toolkits/DEFAULT` | README; found 2026-10-15 |
 | A3 | `tuned/env.sh` sources `common.sh`, asserts the platform, loads the toolkit with `gpu_tuned_load_toolkit` and verifies it (`gpu_tuned_verify_toolkit`), and loads repo settings with `gpu_tuned_load_repo_env` from `tuned/repo.env`. | All | read `env.sh` | README |
 | A4 | `tuned/repo.env` only adds repo-specific keys; it never sets a device, toolkit or `CUDA_*` value. | All | `gpu_tuned_load_repo_env` fails loudly on any such key | README |
 | A5 | The ERR trap is left on (`GPU_TUNED_NO_ERR_TRAP` unset). | All | grep | VERSIONING.md |
@@ -62,10 +62,10 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| B1 | A native repo provides `tuned/build.sh`, `tuned/full_test.sh`, `tuned/package.sh`, `tuned/smoke_test.sh` and `tuned/release.sh`, each taking `<variant>` and selecting the toolkit by `CUDA_TAG`/`CUDA_VER`, else `toolkits/DEFAULT`. | N | `ls`; run each with no args and read the usage | practice 2026-10-15 (raft, cuvs, faiss, llama.cpp) |
+| B1 | A native repo provides `tuned/build.sh`, `tuned/full_test.sh`, `tuned/package.sh`, `tuned/smoke_test.sh` and `tuned/release.sh`, each taking `<variant>` and selecting the toolkit by `CUDA_TAG`/`CUDA_VER`, never defaulted or guessed (with none named the loader fails and lists the defined toolkits; at a terminal it asks). | N | `ls`; run each with no args and read the usage | practice 2026-10-15 (raft, cuvs, faiss, llama.cpp) |
 | B2 | A wheel repo provides a wheel build script, a full test script and a release script with the same stage order and gates (E, G, I apply). | W | `ls` | practice; wheel scripts predate this, compliance unmeasured |
 | B3 | The order is build, test, package, smoke test, (review and commit notes), release. `release.sh` never builds, tests or packages; `package.sh` never tags, publishes or finalises notes. | N | read both scripts; `grep -n 'gh release\|git tag' package.sh` is empty | practice 2026-10-15; requested by the user 2026-10-15 ("split packaging and release") |
-| B4 | No stage selects a toolkit from `/usr/local/cuda` or from what is installed. | All | grep for `/usr/local/cuda\b` outside `toolkits/*.env` | README |
+| B4 | No stage selects a toolkit from `/usr/local/cuda`, from what is installed, or by a default; the toolkit is the one specified. | All | grep for `/usr/local/cuda\b` outside `toolkits/*.env` | README |
 
 ### C. Layout and isolation
 

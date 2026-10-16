@@ -825,10 +825,24 @@ ld="${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${tk}/dfl
 check "load_toolkit: no id is an error that says the toolkit is never defaulted" 1 "no toolkit specified.*never defaulted" "-" "${ld}"
 check "load_toolkit: no id names CUDA_TAG and CUDA_VER as the way to choose" 1 "CUDA_TAG=cu133.*CUDA_VER=13\\.3" "-" "${ld}"
 check "load_toolkit: no id lists every defined toolkit with its CUDA version" 1 "available toolkits:.*cu139\\(13\\.9\\).*cu1310\\(13\\.10\\)|available toolkits:.*cu1310\\(13\\.10\\).*cu139\\(13\\.9\\)" "-" "${ld}"
-check "load_toolkit: a per-variant file is not counted as a toolkit in the list" 1 "-" "-" \
-  "out=\"\$(${ld} 2>&1)\"; [[ \"\${out}\" == *gb10-cu139* ]] && exit 0; exit 1"
-check "load_toolkit: no id exports nothing, so a caller cannot carry on with a guess" 1 "-" "^$" \
-  "${ld} 2>/dev/null; echo \"\${CUDA_TAG:-}\""
+check "load_toolkit: a per-variant file is not counted as a toolkit in the list" 0 "-" "-" \
+  "out=\"\$(${ld} 2>&1 || true)\"; [[ \"\${out}\" != *gb10-cu139* ]]"
+check "load_toolkit: no id exports nothing, so a caller cannot carry on with a guess" 0 "-" "^$" \
+  "${ld} 2>/dev/null || true; echo \"\${CUDA_TAG:-}\""
+# interactive: with a terminal on stdin and stderr it asks which listed toolkit to use (script(1) supplies the pty)
+cat > "${tk}/prompt.sh" <<EOF
+set -uo pipefail
+source '${LIB}'
+export GPU_TUNED_PLATFORM=aarch64
+gpu_tuned_load_toolkit '${tk}/dflt' gb10 && echo "CHOSEN=\${CUDA_TAG} \${CUDA_VER}"
+echo "RC=\$?"
+EOF
+check "load_toolkit: at a terminal it lists the toolkits and takes a number" 0 "-" "CHOSEN=cu139 13\\.9" "ask() { printf '%s\\n' \"\$1\" | script -qec \"bash '${tk}/prompt.sh'\" /dev/null 2>&1 | tr -d '\\r'; }; ask 2"
+check "load_toolkit: at a terminal it takes an id" 0 "-" "CHOSEN=cu1310 13\\.10" "ask() { printf '%s\\n' \"\$1\" | script -qec \"bash '${tk}/prompt.sh'\" /dev/null 2>&1 | tr -d '\\r'; }; ask cu1310"
+check "load_toolkit: at a terminal the prompt shows each version and install state" 0 "-" "1\\) cu1310  CUDA 13\\.10  NOT installed \\(/y\\)" "ask() { printf '%s\\n' \"\$1\" | script -qec \"bash '${tk}/prompt.sh'\" /dev/null 2>&1 | tr -d '\\r'; }; ask 1"
+check "load_toolkit: at a terminal an empty answer is an error, not a guess" 0 "-" "no toolkit chosen.*\\n?.*" "ask() { printf '%s\\n' \"\$1\" | script -qec \"bash '${tk}/prompt.sh'\" /dev/null 2>&1 | tr -d '\\r'; }; ask ''"
+check "load_toolkit: at a terminal an out-of-range number is an error" 0 "-" "no toolkit chosen \\('7'\\)" "ask() { printf '%s\\n' \"\$1\" | script -qec \"bash '${tk}/prompt.sh'\" /dev/null 2>&1 | tr -d '\\r'; }; ask 7"
+check "load_toolkit: at a terminal a wrong answer leaves no toolkit set" 0 "-" "^none$" "ask() { printf '%s\\n' \"\$1\" | script -qec \"bash '${tk}/prompt.sh'\" /dev/null 2>&1 | tr -d '\\r'; }; ask 9 | grep -c CHOSEN | grep -qx 0 && echo none"
 check "load_toolkit: a stray toolkits/DEFAULT file is ignored, not obeyed" 1 "no toolkit specified" "-" \
   "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; rc=0; ${ld} || rc=\$?; rm -f '${tk}/dflt/toolkits/DEFAULT'; exit \$rc"
 check "load_toolkit: an explicit id selects that toolkit, not the highest" 0 "-" "^cu139 13\\.9$" \
