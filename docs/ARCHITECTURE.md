@@ -107,7 +107,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | F1 | Every shared object we ship has a unique `-tuned` name, SONAME and NEEDED entries (`gpu_tuned_rename_package`), with the hyphen form `lib<name>-tuned.so`. | N | package gate; `readelf -d` | decisions/2026-10-15-tuned-shared-object-suffix-hyphen (revalidate 2027-10-15) |
 | F2 | The package gate fails if a stock library name is NEEDED or any shared object is neither ours nor a recorded system library. | N | gate present | tuned-common helpers |
 | F3 | Shipped executables carry the `-tuned` suffix (`llama-server-tuned`). | N that ship executables | tarball listing | practice (llama.cpp 6de6e9dac) |
-| F4 | Wheels' shared objects: the plain `librmm-cu13` style names in the raft wheel scripts are **undecided**. | raft wheels | decision pending | handoff 2026-10-14 |
+| F4 | Wheels' shared objects take the same generic `-tuned` form as F1 (`libtorch_cuda-tuned.so`, `librmm-tuned.so`: file name, SONAME, NEEDED); variant and toolkit stay in the wheel's local version and the build info, not the file name. **NYI:** torch's libraries and the raft wheels still ship the stock names; every consumer linking torch by name is rebuilt (user's todo list). | W, raft wheels | `readelf -d` on the wheel's libraries | user decision 2026-10-16 (`decisions/2026-10-16-wheel-shared-objects-generic-tuned-suffix.md`; replaces "undecided", handoff 2026-10-14) |
 
 ### G. Testing
 
@@ -230,7 +230,7 @@ are what was already in view.
   `/props`), and that `--version` build is still the fork's commit count (E6: information only).
 - **H7 elsewhere (NYI):** raft, cuvs and faiss still stamp the free-text form (raft's `package.sh` reads `@ <sha>` from it) and do not ship
   `BUILD_INFO.json`; the wheel repos stamp their own forms. Migrate one at a time with the reader changed first.
-- **C2:** faiss and llama.cpp use their own trees (open). **F4:** undecided.
+- **C2:** faiss and llama.cpp use their own trees (open). **F4:** decided 2026-10-16 (generic `-tuned` for wheels too), not yet implemented in torch or the raft wheels.
 - **H6 is weaker where the build records no commit:** cuvs and faiss use the test log's commit, which proves what was tested, not what
   was built.
 - **Not measured at all:** nccl, ollama, the wheel repos against B2/G/H/I, ComfyUI, open-webui (no deployments built yet).
