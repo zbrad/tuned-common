@@ -4,6 +4,8 @@ The one design every repo in the tuned-builds fleet is measured against. Each re
 ID, says what a repo MUST do, which repos it applies to, and how to check it. A repo's compliance
 is the list of requirement IDs it passes, fails, or does not apply to, each with evidence.
 
+**NYI** means not yet implemented: described here, but nothing exists to run or measure.
+
 **Status: PROPOSED, written 2026-10-15; not yet ratified as a whole.** Two rules in it are the user's own decisions of 2026-10-15 and already in force: native releases are named by the UTC date label (E2: "that's the wrong form, it should be date-based", about the `-g<sha>` tags), and package and release are separate stages (B3). It consolidates rules that already
 exist in one place or another (`README.md`, `docs/VERSIONING.md`, `docs/UPSTREAM_SYNC.md`,
 `tuned-common.sh`) and the build/test/package/release practice settled while rebuilding raft,
@@ -181,7 +183,7 @@ stay readable.
 | nccl | N | build/package/release scripts; not re-audited |
 | ollama | N | consumes llama.cpp releases; own tags |
 | pytorch, flash-attention, flash-attention-vllm, flashinfer, vllm | W | E1; B2 |
-| ComfyUI, open-webui | D (planned) | A and J today; no deployment exists to measure. When the first is built, the identity, pairing and release requirements apply to it: which dependency releases the deployment pins (D3), its own label (E), build info (H7) with the pinned releases under `deps`, a smoke test of the deployment as installed (G5), and the release gates (I). |
+| ComfyUI, open-webui | D (NYI) | A and J today; no deployment exists to measure. When the first is built, the identity, pairing and release requirements apply to it: which dependency releases the deployment pins (D3), its own label (E), build info (H7) with the pinned releases under `deps`, a smoke test of the deployment as installed (G5), and the release gates (I). |
 
 ## 5. Identity, worked
 
@@ -205,7 +207,7 @@ UNKNOWN, with the evidence (command and output, or file and line). UNKNOWN is a 
 nobody has looked. A repo's score is passes over applicable requirements; the list of FAILs is
 the work. The report is regenerated, not edited by hand.
 
-**Tool (not yet written).** `tools/tuned_compliance.sh <repo-path>` would run the mechanical
+**Tool (NYI).** `tools/tuned_compliance.sh <repo-path>` would run the mechanical
 checks above (A1, A2, B1, B3, C5, E2 for the newest release tag, E6, H1 presence, I1 presence, J1
 trailers) and print the matrix; the rest need a person to read the script and say so. Until it
 exists the matrix is built by hand, and the date and commit it was built at are recorded.
@@ -224,9 +226,9 @@ are what was already in view.
   `v<N>-<variant>-cu<N>` and will not see a date-label llama.cpp release. Recorded as a future todo.
 - **llama.cpp:** done 2026-10-15: release label compiled in at build time (five-line patch to `common/build-info.cpp.in`, `--version`
   only), JSON build info (H7) with `BUILD_INFO.json`, `install.sh` fetching helper files from the release tag (no `tuning-*` source tag
-  or pin), `install.sh`-based smoke test (G5), `relabel.sh` (G6), tuned-common synced (E8). Open: the Patch B idea (a `release` field in
+  or pin), `install.sh`-based smoke test (G5), `relabel.sh` (G6), tuned-common synced (E8). Open: Patch B (NYI: a `release` field in
   `/props`), and that `--version` build is still the fork's commit count (E6: information only).
-- **H7 elsewhere:** raft, cuvs and faiss still stamp the free-text form (raft's `package.sh` reads `@ <sha>` from it) and do not ship
+- **H7 elsewhere (NYI):** raft, cuvs and faiss still stamp the free-text form (raft's `package.sh` reads `@ <sha>` from it) and do not ship
   `BUILD_INFO.json`; the wheel repos stamp their own forms. Migrate one at a time with the reader changed first.
 - **C2:** faiss and llama.cpp use their own trees (open). **F4:** undecided.
 - **H6 is weaker where the build records no commit:** cuvs and faiss use the test log's commit, which proves what was tested, not what
