@@ -18,8 +18,11 @@ shorter rule elsewhere disagree, fix one of them: do not leave both.
   A build uses exactly one variant and one toolkit.
 - **native repo**: ships a tarball of binaries/libraries (raft, cuvs, faiss, llama.cpp, nccl,
   ollama). **wheel repo**: ships Python wheels (pytorch, vllm, flash-attention,
-  flash-attention-vllm, flashinfer). **consumer**: installs a tuned artifact and builds
-  nothing of its own to publish (ComfyUI, open-webui). Applicability below uses these words.
+  flash-attention-vllm, flashinfer). **deployment repo**: installs tuned artifacts and
+  also provides a frozen deployment of particular releases as pre-built binaries (ComfyUI, open-webui). That is the user's
+  statement (2026-10-15), which corrected an earlier reading of these two as consumers that publish nothing; I have not
+  yet found the published deployments (open-webui's GitHub releases carry upstream's release notes and no assets, ComfyUI lists
+  none), so what they publish and where is to be recorded here. Applicability below uses these words.
 - **label**: `<YYYYMMDD>[.<seq>]`, the build identity (section 5).
 - **vendored**: a pinned copy of tuned-common files committed in the consumer repo.
 
@@ -39,7 +42,7 @@ shorter rule elsewhere disagree, fix one of them: do not leave both.
 
 ## 3. Requirements
 
-Legend: **N** native, **W** wheel, **C** consumer, **All** every repo with a `tuned/` directory.
+Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo with a `tuned/` directory.
 
 ### A. Vendoring and shared data
 
@@ -176,7 +179,7 @@ stay readable.
 | nccl | N | build/package/release scripts; not re-audited |
 | ollama | N | consumes llama.cpp releases; own tags |
 | pytorch, flash-attention, flash-attention-vllm, flashinfer, vllm | W | E1; B2 |
-| ComfyUI, open-webui | C | A and J only |
+| ComfyUI, open-webui | D | A and J today. Because they ship frozen deployments of particular releases as binaries, the identity, pairing and release requirements apply to whatever they publish: which dependency releases a deployment pins (D3), its own label (E), build info (H7) with the pinned releases under `deps`, a smoke test of the deployment as installed (G5), and the release gates (I). To be measured once their published form is recorded. |
 
 ## 5. Identity, worked
 
@@ -226,7 +229,7 @@ are what was already in view.
 - **C2:** faiss and llama.cpp use their own trees (open). **F4:** undecided.
 - **H6 is weaker where the build records no commit:** cuvs and faiss use the test log's commit, which proves what was tested, not what
   was built.
-- **Not measured at all:** nccl, ollama, the wheel repos against B2/G/H/I, ComfyUI, open-webui.
+- **Not measured at all:** nccl, ollama, the wheel repos against B2/G/H/I, ComfyUI, open-webui (their published deployments are not yet located).
 
 ## 7. Changing this document
 
