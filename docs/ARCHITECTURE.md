@@ -107,7 +107,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | F1 | Every shared object we ship has a unique `-tuned` name, SONAME and NEEDED entries (`gpu_tuned_rename_package`), with the hyphen form `lib<name>-tuned.so`. | N | package gate; `readelf -d` | decisions/2026-10-15-tuned-shared-object-suffix-hyphen (revalidate 2027-10-15) |
 | F2 | The package gate fails if a stock library name is NEEDED or any shared object is neither ours nor a recorded system library. | N | gate present | tuned-common helpers |
 | F3 | Shipped executables carry the `-tuned` suffix (`llama-server-tuned`). | N that ship executables | tarball listing | practice (llama.cpp 6de6e9dac) |
-| F4 | Wheels' shared objects (torch's `libtorch*`, `libc10*`, raft's `librmm`) take the generic `-tuned` suffix too, same hyphen form as the native libraries (`libtorch_cuda-tuned.so`); variant and toolkit stay in the wheel's local version and the build info. **Decided 2026-10-16 by the user; NYI** (every consumer of torch is rebuilt; todo in `~/.claude/cross-project-todo.md`). | W | package gate on the wheel | decisions/2026-10-16-wheel-shared-objects-generic-tuned-suffix.md |
+| F4 | Wheels' shared objects take the same generic `-tuned` form as F1 (`libtorch_cuda-tuned.so`, `librmm-tuned.so`: file name, SONAME, NEEDED); variant and toolkit stay in the wheel's local version and the build info, not the file name. **NYI:** torch's libraries and the raft wheels still ship the stock names; every consumer linking torch by name is rebuilt (user's todo list). | W, raft wheels | `readelf -d` on the wheel's libraries | user decision 2026-10-16 (`decisions/2026-10-16-wheel-shared-objects-generic-tuned-suffix.md`; replaces "undecided", handoff 2026-10-14) |
 
 ### G. Testing
 
