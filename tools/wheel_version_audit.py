@@ -45,7 +45,7 @@ OTHER = "other"
 SCM_PREFIX = r"(?:[a-z][a-z0-9]*\.)*"
 TUNED_PART = r"[a-z][a-z0-9]*\.cu[0-9]+\.tuning\."
 DATED_RE = re.compile(
-    rf"^{SCM_PREFIX}[a-z][a-z0-9]*\.cu[0-9]+\.([1-9][0-9]{{7}})(?:\.[1-9][0-9]*)?$"
+    rf"^{SCM_PREFIX}[a-z][a-z0-9]*\.cu[0-9]+\.([1-9][0-9]{{7}})(?:\.(?:0|[1-9][0-9]*))?$"
 )
 CONFORMING_RE = re.compile(rf"^{SCM_PREFIX}{TUNED_PART}(0|[1-9][0-9]*)$")
 LEGACY_V_RE = re.compile(rf"^{SCM_PREFIX}{TUNED_PART}v[0-9]+$")

@@ -7,8 +7,8 @@ local-version label, built only by `gpu_tuned_local_version_dated` (in
 `tuned-common.sh`), never by hand:
 
 ```
-<public version>+<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]
-e.g.  2.15.0+gb10.cu134.20261010        first build of that day
+<public version>+<variant>.cu<cuda>.<YYYYMMDD>.<seq>
+e.g.  2.15.0+gb10.cu134.20261010.0      first build of that day
       2.15.0+gb10.cu134.20261010.1      second build the same day
 ```
 
@@ -20,12 +20,15 @@ e.g.  2.15.0+gb10.cu134.20261010        first build of that day
   supplies it is a separate piece of work; until it exists the caller passes the
   date). It replaces the commit counter, so the "local `main` must equal
   `upstream/main`" precondition of the old rule does not apply to this form.
-- `<seq>`: the build's sequence within that date. `0` is the first build and is
-  **omitted**; `1`, `2`, ... are appended. Canonical integer, never zero-padded.
-  `.0` is never produced and is not accepted by the parser: PEP 440 sorts
-  `<date>.0` above `<date>`, which would be a second spelling of the first
-  build. The native release tag renders the same integer in full
-  (`v0.<date>.<seq>`, so `.0` there); both come from one sequence value.
+- `<seq>`: the build's sequence within that date. `0` is the first build, then `1`,
+  `2`, ... Always written. Canonical integer, never zero-padded. The native release
+  tag renders the same integer (`v0.<date>.<seq>`); both come from one sequence value.
+  **Changed 2026-10-16 (user decision):** until then the first build omitted `.0`
+  (`…20261010`). Wheels published that way are not renamed and stay valid: the parser
+  reads a bare date as sequence 0, so `…20261010` and `…20261010.0` are the same label
+  and the allocator treats the bare spelling as taken. PEP 440 sorts `<date>.0` above
+  `<date>` (checked with `packaging`), so a `.0` build ranks above a bare one of the
+  same date, as it should.
 - The public version is **upstream's and is not touched**. That is deliberate: a
   version must satisfy what other packages require of the package (see "Why the
   public version and the distribution name stay upstream's").
@@ -56,7 +59,7 @@ e.g.  2.15.0+gb10.cu134.20261010        first build of that day
   chooses the sequence offline (a canonical integer; `0` is the bare date). A dev build that is
   never published sets `GPU_TUNED_LABEL_SEQ=0` and does no lookup.
 - `gpu_tuned_label_seq <label>` returns the integer (0 for a bare date), so one value renders both
-  the wheel label (0 omitted) and the native tag (`v0.<date>.<seq>`, 0 written).
+  the wheel label and the native tag (`v0.<date>.<seq>`), 0 written in both.
 
 ### Previous rule (2026-09-18 to 2026-10-11), still accepted
 

@@ -214,7 +214,8 @@ check "wheel_label: the counter is refused by default" 1 "is not <variant>" "-" 
 check "wheel_label: the counter passes with the override, loudly" 0 "retired tuning.N counter" "-" "${pre}; GPU_TUNED_ALLOW_COUNTER_LABEL=1 gpu_tuned_check_wheel_label $(wl +gb10.cu134.tuning.62)"
 check "wheel_label: legacy tuning.vN is refused even with the override" 1 "is not <variant>" "-" "${pre}; GPU_TUNED_ALLOW_COUNTER_LABEL=1 gpu_tuned_check_wheel_label $(wl +gb10.cu134.tuning.v34)"
 check "wheel_label: an impossible calendar date is refused" 1 "not a real calendar date" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20260230)"
-check "wheel_label: a .0 sequence is refused" 1 "is not <variant>" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20261011.0)"
+check "wheel_label: a .0 sequence is accepted (first build of the date)" 0 "-" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20261011.0)"
+check "wheel_label: a zero-padded sequence is refused" 1 "is not <variant>" "-" "${pre}; gpu_tuned_check_wheel_label $(wl +gb10.cu134.20261011.01)"
 check "wheel_label: a non-wheel name is refused" 1 "not a wheel file name" "-" "${pre}; gpu_tuned_check_wheel_label model.tar.gz"
 # --- smoke test of a built wheel (toy wheels; the GPU part needs a real torch wheel) ---
 toy="$(mktemp -d)"
@@ -396,9 +397,9 @@ check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r
 rm -rf "${gate}"
 
 # --- date-form wheel label ---
-check "dated label: first build of the day has no sequence suffix" 0 "-" "^gb10\.cu134\.20261010$" \
+check "dated label: the first build of the day is written .0" 0 "-" "^gb10\.cu134\.20261010\.0$" \
   "${pre}; gpu_tuned_local_version_dated gb10 134 20261010"
-check "dated label: seq 0 is the same as omitted" 0 "-" "^gb10\.cu134\.20261010$" \
+check "dated label: seq 0 is the same as omitted" 0 "-" "^gb10\.cu134\.20261010\.0$" \
   "${pre}; gpu_tuned_local_version_dated gb10 134 20261010 0"
 check "dated label: later builds append .N" 0 "-" "^gb10\.cu134\.20261010\.2$" \
   "${pre}; gpu_tuned_local_version_dated gb10 134 20261010 2"
@@ -420,8 +421,10 @@ check "date_label: the old tuning.N counter is not a date label (empty, exit 0, 
   "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.tuning.62')\"; echo \"[\${X}]\""
 check "date_label: a CUDA-only local is not a date label" 0 "-" "^\\[\\]$" \
   "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134')\"; echo \"[\${X}]\""
-check "date_label: a .0 sequence is not a label" 0 "-" "^\\[\\]$" \
-  "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.20261010.0')\"; echo \"[\${X}]\""
+check "date_label: a .0 sequence reads as the bare date" 0 "-" "^20261010$" \
+  "${pre}; gpu_tuned_date_label '0.7.0+gb10.cu134.20261010.0'"
+check "date_label: a zero-padded sequence is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.20261010.01')\"; echo \"[\${X}]\""
 check "date_label: an impossible date is not a label" 0 "-" "^\\[\\]$" \
   "${pre}; X=\"\$(gpu_tuned_date_label '0.7.0+gb10.cu134.20260230')\"; echo \"[\${X}]\""
 check "date_label: a native tag with seq 0 reads as the bare date" 0 "-" "^20261011$" "${pre}; gpu_tuned_date_label 'v0.20261011.0-gb10-cu134'"
@@ -515,7 +518,7 @@ check "allocate: the result round-trips through local_version_dated and date_lab
 mkdir -p "${al}/cuda-13.4/bin"; printf '#!/bin/sh\nprintf "Cuda compilation tools, release 13.4, V13.4.48\\n"\n' > "${al}/cuda-13.4/bin/nvcc"; chmod +x "${al}/cuda-13.4/bin/nvcc"
 check "build_local_version: the whole suffix, from nvcc, HEAD's UTC date and the next free sequence" 0 "-" "^gb10\\.cu134\\.20261011\\.2$" \
   "${pre}; ${aw}; CUDA_HOME='${al}/cuda-13.4' gpu_tuned_build_local_version gb10 ."
-check "build_local_version: GPU_TUNED_LABEL_SEQ=0 is the dev-build form, no lookup" 0 "-" "^gb10\\.cu134\\.20261011$" \
+check "build_local_version: GPU_TUNED_LABEL_SEQ=0 is the dev-build form, no lookup" 0 "-" "^gb10\\.cu134\\.20261011\\.0$" \
   "${pre}; ${aw}; CUDA_HOME='${al}/cuda-13.4' GPU_TUNED_LABEL_SEQ=0 gpu_tuned_build_local_version gb10 . nowhere"
 check "build_local_version: no CUDA_HOME is a loud error" 1 "CUDA_HOME is not set" "-" \
   "${pre}; ${aw}; unset CUDA_HOME; gpu_tuned_build_local_version gb10 ."
@@ -814,28 +817,24 @@ check "load_toolkit: available toolkits are listed" 1 "available toolkits:.*cu99
 check "load_toolkit: exports CUDA_VER/CUDA_TAG/CUDA_HOME/lib dir" 0 "-" \
   "^99\\.9 cu999 ${tk}/cuda-99.9 ${tk}/cuda-99.9/targets/sbsa-linux/lib$" \
   "${lt} rtx40 cu999; echo \"\${CUDA_VER} \${CUDA_TAG} \${CUDA_HOME} \${GPU_TUNED_TOOLKIT_LIB_DIR}\""
-# default: highest by declared CUDA version, not by name (13.10 > 13.9; cu1310 sorts below cu139 by name)
+# no id: an error that names how to choose and lists what is defined; nothing is defaulted or guessed
 printf '%s\n' 'TOOLKIT_ID="cu139"' 'TOOLKIT_CUDA_VER="13.9"' 'TOOLKIT_CUDA_HOME="/x"' 'TOOLKIT_NVCC_RELEASE="13.9"' > "${tk}/dflt/toolkits/cu139.env"
 printf '%s\n' 'TOOLKIT_ID="cu1310"' 'TOOLKIT_CUDA_VER="13.10"' 'TOOLKIT_CUDA_HOME="/y"' 'TOOLKIT_NVCC_RELEASE="13.10"' > "${tk}/dflt/toolkits/cu1310.env"
 printf '%s\n' 'TOOLKIT_NVCC_RELEASE="0"' > "${tk}/dflt/toolkits/gb10-cu139.env"
 ld="${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${tk}/dflt' gb10"
-check "load_toolkit: no id uses the highest declared CUDA version" 0 "using cu1310 \\(CUDA 13\\.10\\)" "^cu1310 13\\.10 /y$" \
-  "${ld}; echo \"\${CUDA_TAG} \${CUDA_VER} \${CUDA_HOME}\""
-check "load_toolkit: the default states the full list and the reason" 0 \
-  "available:.*cu139\\(13\\.9\\).*cu1310\\(13\\.10\\)|available:.*cu1310\\(13\\.10\\).*cu139\\(13\\.9\\)" "-" "${ld}"
-check "load_toolkit: the default message says how to choose another" 0 "set CUDA_TAG" "-" "${ld}"
-check "load_toolkit: a per-variant file is not counted as a toolkit in the list" 0 "-" "-" \
-  "out=\"\$(${ld} 2>&1)\"; [[ \"\${out}\" != *gb10-cu139* ]]"
-check "load_toolkit: toolkits/DEFAULT names the default, not the highest" 0 "using cu139: none was specified, so the default named in toolkits/DEFAULT" "^cu139 13\\.9$" \
-  "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; ${ld}; echo \"\${CUDA_TAG} \${CUDA_VER}\"; rm -f '${tk}/dflt/toolkits/DEFAULT'"
-check "load_toolkit: the DEFAULT message still says the highest defined" 0 "highest defined is cu1310" "-" \
-  "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; ${ld}; rm -f '${tk}/dflt/toolkits/DEFAULT'"
-check "load_toolkit: a DEFAULT that names a missing toolkit is an error" 1 "DEFAULT names 'cu000'" "-" \
-  "printf 'cu000\\n' > '${tk}/dflt/toolkits/DEFAULT'; rc=0; ${ld} || rc=\$?; rm -f '${tk}/dflt/toolkits/DEFAULT'; exit \$rc"
-check "load_toolkit: an explicit id wins over DEFAULT" 0 "-" "^cu1310$" \
-  "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; ${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${tk}/dflt' gb10 cu1310; echo \"\${CUDA_TAG}\"; rm -f '${tk}/dflt/toolkits/DEFAULT'"
-check "load_toolkit: the real data dir defaults to cu133 and defines cu134" 0 "using cu133: none was specified" "-" \
-  "${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}' gb10; [ -f '${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}/toolkits/cu134.env' ]"
+check "load_toolkit: no id is an error that says the toolkit is never defaulted" 1 "no toolkit specified.*never defaulted" "-" "${ld}"
+check "load_toolkit: no id names CUDA_TAG and CUDA_VER as the way to choose" 1 "CUDA_TAG=cu133.*CUDA_VER=13\\.3" "-" "${ld}"
+check "load_toolkit: no id lists every defined toolkit with its CUDA version" 1 "available toolkits:.*cu139\\(13\\.9\\).*cu1310\\(13\\.10\\)|available toolkits:.*cu1310\\(13\\.10\\).*cu139\\(13\\.9\\)" "-" "${ld}"
+check "load_toolkit: a per-variant file is not counted as a toolkit in the list" 1 "-" "-" \
+  "out=\"\$(${ld} 2>&1)\"; [[ \"\${out}\" == *gb10-cu139* ]] && exit 0; exit 1"
+check "load_toolkit: no id exports nothing, so a caller cannot carry on with a guess" 1 "-" "^$" \
+  "${ld} 2>/dev/null; echo \"\${CUDA_TAG:-}\""
+check "load_toolkit: a stray toolkits/DEFAULT file is ignored, not obeyed" 1 "no toolkit specified" "-" \
+  "printf 'cu139\\n' > '${tk}/dflt/toolkits/DEFAULT'; rc=0; ${ld} || rc=\$?; rm -f '${tk}/dflt/toolkits/DEFAULT'; exit \$rc"
+check "load_toolkit: an explicit id selects that toolkit, not the highest" 0 "-" "^cu139 13\\.9$" \
+  "${pre}; export GPU_TUNED_PLATFORM=aarch64; gpu_tuned_load_toolkit '${tk}/dflt' gb10 cu139; echo \"\${CUDA_TAG} \${CUDA_VER}\""
+check "load_toolkit: the real data dir defines cu133 and cu134 and picks neither unasked" 1 "no toolkit specified" "-" \
+  "${pre}; export GPU_TUNED_PLATFORM=aarch64; D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; [ -f \"\$D/toolkits/cu133.env\" ] && [ -f \"\$D/toolkits/cu134.env\" ] && gpu_tuned_load_toolkit \"\$D\" gb10"
 check "load_toolkit: no id and no toolkit files is an error" 1 "none defined" "-" \
   "${pre}; mkdir -p '${tk}/empty/toolkits'; gpu_tuned_load_toolkit '${tk}/empty' gb10"
 check "load_toolkit: a <variant>-<toolkit>.env overrides the base file" 0 "-" "^98\\.0$" \

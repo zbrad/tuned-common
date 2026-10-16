@@ -199,52 +199,32 @@ gpu_tuned_verify_cccl_version() {
     echo "OK: CCCL ${found_major}.${found_minor}.${found_patch} meets the minimum required version (${min_version})"
 }
 
-# gpu_tuned_load_toolkit <data-dir> <variant> [<toolkit-id>] — selects a CUDA
+# gpu_tuned_load_toolkit <data-dir> <variant> <toolkit-id> — selects a CUDA
 # toolkit from <data-dir>/toolkits/<toolkit-id>.env (e.g. cu133), then
 # sources the optional <data-dir>/toolkits/<variant>-<toolkit-id>.env, which
-# overrides any key. With no id it uses the highest defined toolkit (by its
-# declared TOOLKIT_CUDA_VER, not by file name) and says so on stderr, naming
-# the whole list and the reason. It only ever picks from the toolkit files,
-# never from /usr/local/cuda or from what happens to be installed. An unknown
-# id is an error that lists the available ones, and an already-set CUDA_HOME
-# that differs from the toolkit's is rejected rather than trusted. Exports
-# CUDA_VER, CUDA_TAG, CUDA_HOME, GPU_TUNED_TOOLKIT_LIB_DIR (the toolkit's own
-# targets/<arch>-linux/lib, from GPU_TUNED_PLATFORM when set, else uname -m)
-# and prepends $CUDA_HOME/bin to PATH. It does not check the install: call
-# gpu_tuned_verify_toolkit for that.
+# overrides any key. The toolkit is always the one named: there is no default
+# and no "highest defined" or "newest installed" guess, so a build can never
+# silently use a toolkit nobody chose. With no id it fails, listing the
+# toolkits that are defined. An unknown id is an error that lists them too, and
+# an already-set CUDA_HOME that differs from the toolkit's is rejected rather
+# than trusted. It only ever reads the toolkit files, never /usr/local/cuda or
+# what happens to be installed. Exports CUDA_VER, CUDA_TAG, CUDA_HOME,
+# GPU_TUNED_TOOLKIT_LIB_DIR (the toolkit's own targets/<arch>-linux/lib, from
+# GPU_TUNED_PLATFORM when set, else uname -m) and prepends $CUDA_HOME/bin to
+# PATH. It does not check the install: call gpu_tuned_verify_toolkit for that.
 gpu_tuned_load_toolkit() {
     local data_dir="$1" variant="$2" tk="${3:-}"
     if [[ -z "${tk}" ]]; then
-        local f v listing="" best="" best_v=""
+        local f listing="" v
         for f in "${data_dir}"/toolkits/*.env; do
             [[ -f "${f}" ]] || continue
             [[ "$(basename "${f}" .env)" == "${variant}-"* ]] && continue   # per-variant override file
             v="$(sed -n 's/^TOOLKIT_CUDA_VER="\(.*\)"$/\1/p' "${f}" | head -1)"
             listing+=" $(basename "${f}" .env)(${v:-?})"
-            if [[ -n "${v}" && ( -z "${best_v}" || "$(printf '%s\n%s\n' "${best_v}" "${v}" | sort -V | tail -1)" == "${v}" ) ]]; then
-                best="$(basename "${f}" .env)"; best_v="${v}"
-            fi
         done
-        if [[ -z "${best}" ]]; then
-            echo "ERROR: gpu_tuned_load_toolkit: no toolkit given and none defined under ${data_dir}/toolkits" >&2
-            return 1
-        fi
-        echo "[toolkit] available:${listing}" >&2
-        local dflt=""
-        if [[ -f "${data_dir}/toolkits/DEFAULT" ]]; then
-            dflt="$(tr -d '[:space:]' < "${data_dir}/toolkits/DEFAULT")"
-            if [[ ! -f "${data_dir}/toolkits/${dflt}.env" ]]; then
-                echo "ERROR: gpu_tuned_load_toolkit: ${data_dir}/toolkits/DEFAULT names '${dflt}', which has no toolkits/${dflt}.env." >&2
-                return 1
-            fi
-            echo "[toolkit] using ${dflt}: none was specified, so the default named in toolkits/DEFAULT is used (highest defined is ${best})." >&2
-            echo "[toolkit] to choose another, set CUDA_TAG (e.g. CUDA_TAG=${best}) or CUDA_VER." >&2
-            tk="${dflt}"
-        else
-            echo "[toolkit] using ${best} (CUDA ${best_v}): none was specified, so the highest defined toolkit is used." >&2
-            echo "[toolkit] to choose another, set CUDA_TAG (e.g. CUDA_TAG=${best}) or CUDA_VER." >&2
-            tk="${best}"
-        fi
+        echo "ERROR: gpu_tuned_load_toolkit: no toolkit specified. The toolkit is never defaulted or guessed: name it with CUDA_TAG (e.g. CUDA_TAG=cu133) or CUDA_VER (e.g. CUDA_VER=13.3)." >&2
+        echo "       available toolkits:${listing:- (none defined under ${data_dir}/toolkits)}" >&2
+        return 1
     fi
     local base="${data_dir}/toolkits/${tk}.env"
     local over="${data_dir}/toolkits/${variant}-${tk}.env"
@@ -1050,7 +1030,7 @@ gpu_tuned_check_wheel_label() {
         return 1
     fi
     local_part="${version#*+}"
-    if [[ "${local_part}" =~ ^([a-z][a-z0-9]*\.)*[a-z][a-z0-9]*\.cu[0-9]+\.([1-9][0-9]{7})(\.[1-9][0-9]*)?$ ]]; then
+    if [[ "${local_part}" =~ ^([a-z][a-z0-9]*\.)*[a-z][a-z0-9]*\.cu[0-9]+\.([1-9][0-9]{7})(\.(0|[1-9][0-9]*))?$ ]]; then
         date="${BASH_REMATCH[2]}"
         if gpu_tuned_valid_date "${date}"; then return 0; fi
         echo "ERROR: gpu_tuned_check_wheel_label: ${name} carries ${date}, which is not a real calendar date." >&2
@@ -1507,18 +1487,19 @@ gpu_tuned_valid_date() {
 }
 
 # gpu_tuned_local_version_dated <variant> <cuda-compact> <YYYYMMDD> [<seq>] --
-# prints the date-form PEP 440 local label: <variant>.cu<cuda>.<YYYYMMDD>[.<seq>]
-# e.g. "0.7.0+gb10.cu134.20261010" and, for a second build the same day,
+# prints the date-form PEP 440 local label: <variant>.cu<cuda>.<YYYYMMDD>.<seq>
+# e.g. "0.7.0+gb10.cu134.20261010.0" and, for a second build the same day,
 # "0.7.0+gb10.cu134.20261010.1". Replaces "<variant>.cu<cuda>.tuning.<N>" (user
 # decision 2026-10-11, docs/VERSIONING.md); gpu_tuned_local_version is kept for
 # consumers that have not migrated.
 #
 # <seq> is the build's sequence within its date: 0 (the default) is the first
-# build and is OMITTED from the label; 1, 2, ... are appended. It must be a
-# canonical integer (no leading zeros). A ".0" label is never produced because
-# PEP 440 sorts "<date>.0" above "<date>", which would make it a second spelling
-# of the first build. The native release tag renders the same integer in full
-# (v0.<date>.<seq>, so ".0" there); both come from one sequence value.
+# build; it is always written, as in the native release tag (v0.<date>.<seq>), so
+# one integer renders both. It must be a canonical integer (no leading zeros).
+# Since 2026-10-16 (user decision) the first build is written ".0"; wheels labelled
+# with the bare date before that stay valid, are read as sequence 0 and are never
+# renamed. PEP 440 sorts "<date>.0" above "<date>" (checked with packaging), so a
+# new ".0" build ranks above an old bare one of the same date, as it should.
 gpu_tuned_local_version_dated() {
     local variant="${1:-}" cuda="${2:-}" date="${3:-}" seq="${4:-0}"
     if [[ ! "${variant}" =~ ^[a-z][a-z0-9]*$ ]]; then
@@ -1537,25 +1518,25 @@ gpu_tuned_local_version_dated() {
         echo "ERROR: gpu_tuned_local_version_dated: sequence '${seq}' must be a canonical integer (0 = first build of the day, no leading zeros)." >&2
         return 1
     fi
-    if [ "${seq}" = "0" ]; then
-        echo "${variant}.cu${cuda}.${date}"
-    else
-        echo "${variant}.cu${cuda}.${date}.${seq}"
-    fi
+    echo "${variant}.cu${cuda}.${date}.${seq}"
 }
 
 # gpu_tuned_date_label <version-string> -- prints the "<YYYYMMDD>[.<seq>]" label
 # at the END of a date-form tuned version (e.g. "0.7.0+gb10.cu134.20261010.1" ->
-# "20261010.1"), or nothing (still exit 0) if the version does not end that way.
+# "20261010.1"; ".0" and the older bare spelling both read as "20261010"), or nothing (still
+# exit 0) if the version does not end that way.
 # Anchored on the "<variant>.cu<cuda>." that precedes it, because without the old
 # "tuning" marker a bare digit match would also hit a CUDA segment or setuptools_scm's
-# g<sha>. A ".0" sequence and an impossible calendar date are not labels. Never
+# g<sha>. An impossible calendar date or a zero-padded sequence is not a label. Never
 # fails (callers run under pipefail).
 gpu_tuned_date_label() {
     local v="${1:-}" label=""
-    if [[ "${v}" =~ \.cu[0-9]+\.([1-9][0-9]{7}(\.[1-9][0-9]*)?)$ ]]; then
+    if [[ "${v}" =~ \.cu[0-9]+\.([1-9][0-9]{7})(\.(0|[1-9][0-9]*))?$ ]]; then
         label="${BASH_REMATCH[1]}"
-        gpu_tuned_valid_date "${label:0:8}" || label=""
+        local wseq="${BASH_REMATCH[3]}"   # saved first: gpu_tuned_valid_date's own regex overwrites BASH_REMATCH
+        gpu_tuned_valid_date "${label}" || label=""
+        # ".0" is the first build and reads as the bare date (also the older, bare spelling).
+        [ -z "${label}" ] || [ -z "${wseq}" ] || [ "${wseq}" = 0 ] || label="${label}.${wseq}"
     elif [[ "${v}" =~ ^v0\.([1-9][0-9]{7})\.(0|[1-9][0-9]*)-[a-z][a-z0-9]*-cu[0-9]+$ ]]; then
         # native release tag v0.<date>.<seq>-<variant>-cu<cuda>; seq 0 is the bare date
         label="${BASH_REMATCH[1]}"

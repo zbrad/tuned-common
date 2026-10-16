@@ -91,7 +91,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| E1 | A wheel carries `<public version>+<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]`, built only by `gpu_tuned_local_version_dated`/`gpu_tuned_build_local_version`, never by hand. The public version is upstream's. | W | `gpu_tuned_date_label` parses the wheel name | VERSIONING.md (user decision 2026-10-11) |
+| E1 | A wheel carries `<public version>+<variant>.cu<cuda>.<YYYYMMDD>.<seq>` (the sequence always written, `0` for the first, as in E2), built only by `gpu_tuned_local_version_dated`/`gpu_tuned_build_local_version`, never by hand. The public version is upstream's. Wheels published before 2026-10-16 with the bare date are not renamed and read as sequence 0. | W | `gpu_tuned_date_label` parses the wheel name | VERSIONING.md (user decision 2026-10-11; `.0` written, user decision 2026-10-16) |
 | E2 | A native release tag is `v0.<YYYYMMDD>.<seq>-<variant>-<cuda-tag>` (the sequence always written, `0` for the first), built by `gpu_tuned_native_tag`. | N | `gpu_tuned_date_label <tag>` returns a label | VERSIONING.md; `docs/upstream-vs-tuned-versions.json` `scheme.native_tag`; user 2026-10-15 ("back to UTC dates ... build count per date") |
 | E3 | The date is the UTC committer date of the tuned `HEAD` (`gpu_tuned_head_date`); the sequence is the lowest unused for that date among the repo's tags (`gpu_tuned_allocate_date_label`). Never the wall clock, never a commit count or a sha. | All | read the label source | VERSIONING.md |
 | E4 | The label is allocated once, at the earliest stage that bakes it into an artifact, and recorded in a file the later stages read: `package-info.txt` for native tarballs whose identity is stamped at packaging (raft, cuvs, faiss), `<build>/release-label` for llama.cpp, whose label is compiled into the binary at build time, and the wheel script for wheels. Later stages never recompute it (a notes commit moves `HEAD` and its date). Nothing reserves a label before publish, so the full commit stays in the build info and the release gate checks the tag is free. | N, W | the recorded file; `release.sh` reads it | practice 2026-10-15 (llama.cpp, user: "build info ... release version more relevant") |
@@ -194,7 +194,7 @@ second build the same UTC date           ->  label 20261016.1      (seq 1)
 
 native tag      v0.20261016.0-gb10-cu133        v0.20261016.1-gb10-cu133
 tarball         <repo>-0.20261016.0-gb10-cu133.tar.gz
-wheel version   2.15.0+gb10.cu133.20261016      2.15.0+gb10.cu133.20261016.1
+wheel version   2.15.0+gb10.cu133.20261016.0    2.15.0+gb10.cu133.20261016.1
 ```
 
 The upstream version is not part of the identity. It may appear in the release title and notes

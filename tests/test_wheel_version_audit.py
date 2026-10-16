@@ -31,7 +31,7 @@ def _audit(*rows: tuple[str, str, str]) -> WheelVersionAudit:
         ("gb10.cu134.20261010", DATED),
         ("gb10.cu134.20261010.1", DATED),
         ("g44a0a3c96.gb10.cu134.20261010", DATED),
-        ("gb10.cu134.20261010.0", PRE_MARKER),
+        ("gb10.cu134.20261010.0", DATED),
         ("gb10.cu134.20261010.01", PRE_MARKER),
         ("gb10.cu134.20260230", PRE_MARKER),
         ("gb10.cu134.02061010", PRE_MARKER),
