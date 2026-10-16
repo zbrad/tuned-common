@@ -20,9 +20,12 @@ shorter rule elsewhere disagree, fix one of them: do not leave both.
   ollama). **wheel repo**: ships Python wheels (pytorch, vllm, flash-attention,
   flash-attention-vllm, flashinfer). **deployment repo**: installs tuned artifacts and
   also provides a frozen deployment of particular releases as pre-built binaries (ComfyUI, open-webui). That is the user's
-  statement (2026-10-15), which corrected an earlier reading of these two as consumers that publish nothing; I have not
-  yet found the published deployments (open-webui's GitHub releases carry upstream's release notes and no assets, ComfyUI lists
-  none), so what they publish and where is to be recorded here. Applicability below uses these words.
+  statement (2026-10-15), which corrected an earlier reading of these two as consumers that publish nothing. A web search the same
+  day (attributed, not run here) confirms the upstream projects do ship such deployments: ComfyUI a Windows portable build and a
+  desktop app (docs.comfy.org; the search did not confirm an official ComfyUI Docker image), Open WebUI official container images
+  at `ghcr.io/open-webui/open-webui` with `vX.Y.Z` and `git-<sha>` tags (docs.openwebui.com/deployment/docker-images). Those are upstream's,
+  not zbrad's: I have not found what the zbrad forks publish (open-webui's GitHub releases carry upstream's release notes and no assets,
+  ComfyUI lists none), so what a fleet deployment is and where it is published is to be recorded here. Applicability below uses these words.
 - **label**: `<YYYYMMDD>[.<seq>]`, the build identity (section 5).
 - **vendored**: a pinned copy of tuned-common files committed in the consumer repo.
 
