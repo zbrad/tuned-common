@@ -315,6 +315,46 @@ check "publish_release: a good wheel label reaches gh, label suffix ignored" 0 "
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes '$(wl +gb10.cu134.20261011)#torch'; grep -q 'release create v0.20261011.0-gb10-cu134' '${gate}/gh.log'"
 check "publish_release: a non-wheel asset is not label-checked" 0 "-" "OK: published" \
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes 'llama-cpp-1-gb10.tar.gz'"
+# --- JSON build-info stamp ---
+bi="$(mktemp -d)"
+printf 'int main(void){return 0;}\n' > "${bi}/m.c"; gcc -o "${bi}/m" "${bi}/m.c"
+git init -q "${bi}/repo"; ( cd "${bi}/repo" && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m one )
+check "build_info_json: nested, typed fields" 0 "-" '^\{"schema":"tuned-build-info/1","release":"v0\.20261011\.0-gb10-cu134","n":3,"ok":true,"cuda":\{"tag":"cu134"\},"gone":null\}$' \
+  "${pre}; gpu_tuned_build_info_json release=v0.20261011.0-gb10-cu134 n:int=3 ok:bool=true cuda.tag=cu134 gone:null="
+check "build_info_json: quotes, backslashes and unicode survive a round trip" 0 "-" "-" \
+  "${pre}; gpu_tuned_build_info_json 'x=a \"q\" \\\\ b é' | python3 -c 'import json,sys; assert json.load(sys.stdin)[\"x\"]==\"a \\\"q\\\" \\\\\\\\ b é\"'"
+check "build_info_json: a control character is refused" 1 "control character" "-" "${pre}; gpu_tuned_build_info_json \$'x=a\\nb'"
+check "build_info_json: a non-canonical int is refused" 1 "canonical integer" "-" "${pre}; gpu_tuned_build_info_json n:int=007"
+check "build_info_json: a bad bool is refused" 1 "true or false" "-" "${pre}; gpu_tuned_build_info_json b:bool=yes"
+check "build_info_json: a duplicate field is refused" 1 "duplicate" "-" "${pre}; gpu_tuned_build_info_json a=1 a=2"
+check "build_info_json: a value that is also a parent is refused" 1 "both a value and a parent" "-" "${pre}; gpu_tuned_build_info_json a=1 a.b=2"
+check "build_info_json: an upper-case or dashed field name is refused" 1 "bad field name" "-" "${pre}; gpu_tuned_build_info_json Bad-Name=1"
+check "build_info_json: an argument without = is refused" 1 "not name=value" "-" "${pre}; gpu_tuned_build_info_json lonely"
+check "embed_json: stamps an ELF and reads back as valid JSON with git fields" 0 "-" '"fork":\{"url":"[^"]*","commit":"[0-9a-f]{40}","dirty":false,"commit_count":1\}' \
+  "${pre}; cp '${bi}/m' '${bi}/a'; cd '${bi}/repo'; gpu_tuned_embed_build_info_json '${bi}/a' release=v0.20261011.0-gb10-cu134 && gpu_tuned_read_build_info '${bi}/a'"
+check "embed_json: the stamped binary still runs" 0 "-" "-" "${pre}; cd '${bi}/repo'; gpu_tuned_embed_build_info_json '${bi}/a' release=r && '${bi}/a'"
+check "embed_json: stamping twice leaves exactly one section" 0 "-" "^1$" \
+  "${pre}; cd '${bi}/repo'; gpu_tuned_embed_build_info_json '${bi}/a' release=r1; gpu_tuned_embed_build_info_json '${bi}/a' release=r2; readelf -S -W '${bi}/a' | grep -c '\\.tuned_build_info'"
+check "embed_json: the second stamp replaces the first" 0 "-" '"release":"r2"' "${pre}; gpu_tuned_read_build_info '${bi}/a'"
+check "embed_json: a caller field overrides an automatic one" 0 "-" '"url":"https://example.org/x"' \
+  "${pre}; cd '${bi}/repo'; gpu_tuned_embed_build_info_json '${bi}/a' fork.url=https://example.org/x && gpu_tuned_read_build_info '${bi}/a'"
+check "embed_json: a dirty tracked file is marked dirty" 0 "-" '"dirty":true' \
+  "${pre}; cd '${bi}/repo'; echo x > f; git add f; git -c user.email=t@t -c user.name=t commit -q -m two; echo y >> f; gpu_tuned_embed_build_info_json '${bi}/a' release=r; gpu_tuned_read_build_info '${bi}/a'; git checkout -q f"
+check "embed_json: an upstream remote adds its url and a declared ref" 0 "-" '"upstream":\{"url":"https://github.com/o/r","ref":"upstream/main"' \
+  "${pre}; cd '${bi}/repo'; git remote add upstream https://github.com/o/r.git; git update-ref refs/remotes/upstream/main HEAD; GPU_TUNED_UPSTREAM_REF=upstream/main gpu_tuned_embed_build_info_json '${bi}/a' release=r; gpu_tuned_read_build_info '${bi}/a'"
+check "embed_json: an undeclared upstream ref is null, not omitted" 0 "-" '"ref":null' \
+  "${pre}; cd '${bi}/repo'; gpu_tuned_embed_build_info_json '${bi}/a' release=r; gpu_tuned_read_build_info '${bi}/a'"
+check "embed_json: a file that is not there is refused" 1 "is not a file" "-" "${pre}; gpu_tuned_embed_build_info_json '${bi}/nope' release=r"
+check "read_build_info: a legacy text stamp is wrapped as JSON" 0 "-" '"schema":"text".*"section":".legacy_build_info".*legacy stamp' \
+  "${pre}; cp '${bi}/m' '${bi}/l'; printf 'legacy stamp v1\\n' > '${bi}/l.txt'; objcopy --add-section .legacy_build_info='${bi}/l.txt' '${bi}/l'; gpu_tuned_read_build_info '${bi}/l'"
+check "read_build_info: a file with no stamp is refused" 1 "has no .tuned_build_info" "-" "${pre}; gpu_tuned_read_build_info '${bi}/m'"
+check "read_build_info: does not rewrite the file it reads" 0 "-" "-" \
+  "${pre}; a=\$(sha256sum '${bi}/a'); gpu_tuned_read_build_info '${bi}/a' >/dev/null; [ \"\$a\" = \"\$(sha256sum '${bi}/a')\" ]"
+check "verify_json: matching fields pass, with types" 0 "-" "-" \
+  "${pre}; cd '${bi}/repo'; gpu_tuned_embed_build_info_json '${bi}/a' release=r n:int=5 k.ok:bool=true; gpu_tuned_verify_build_info_json '${bi}/a' release=r n:int=5 k.ok:bool=true"
+check "verify_json: a wrong field names it and both values" 1 "field release is 'r', expected 'other'" "-" "${pre}; gpu_tuned_verify_build_info_json '${bi}/a' release=other"
+check "verify_json: a missing field fails" 1 "field nothing.here is None" "-" "${pre}; gpu_tuned_verify_build_info_json '${bi}/a' nothing.here=x"
+rm -rf "${bi}"
 # --- smoke: libraries resolve inside the extracted package ---
 sm="$(mktemp -d)"; mkdir -p "${sm}/pkg/lib" "${sm}/other"
 printf 'int foo(void){return 7;}\n' > "${sm}/foo.c"; printf 'int foo(void); int main(void){return foo()==7?0:1;}\n' > "${sm}/main.c"
