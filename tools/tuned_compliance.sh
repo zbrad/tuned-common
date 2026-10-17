@@ -165,6 +165,10 @@ chk_A6() {
     for f in "${T}"/common-data/toolkits/*.env; do grep -qE '^TOOLKIT_NCCL_VERSION=' "${f}" || bad="${bad} ${f##*/}"; done
     [[ -z "${bad}" ]] && pass "every vendored toolkit defines TOOLKIT_NCCL_VERSION" || fail "missing TOOLKIT_NCCL_VERSION:${bad}"
 }
+chk_A7() {
+    local h; h="$(nc_grep '^[[:space:]]*(function[[:space:]]+)?gpu_tuned_[A-Za-z0-9_]+[[:space:]]*(\(\))?[[:space:]]*\{' "${OWN[@]}" "${T}/env.sh")"
+    [[ -z "${h}" ]] && pass "no gpu_tuned_* function defined outside the vendored common.sh" || fail "$(echo "${h}" | sort -u | first 3)"
+}
 chk_B1() {
     local s miss=""
     for s in build full_test package smoke_test release; do [[ -f "${T}/${s}.sh" ]] || miss="${miss} ${s}.sh"; done
@@ -244,7 +248,7 @@ chk_J3() {
 }
 
 # ---- the requirement register: ID | kinds it applies to (any, native, wheel) ---------------------
-REG="A1:any A2:any A3:any A4:any A5:any A6:any B1:native B2:wheel B3:native B4:any
+REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any B1:native B2:wheel B3:native B4:any
 C1:any C2:native C3:native C4:native C5:any C6:native C7:native D1:native D2:native D3:native
 E1:wheel E2:native E3:any E4:any E5:any E6:any E7:any E8:any F1:native F2:native F3:native F4:wheel
 G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native

@@ -62,6 +62,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | A4 | `tuned/repo.env` only adds repo-specific keys; it never sets a device, toolkit or `CUDA_*` value. | All | `gpu_tuned_load_repo_env` fails loudly on any such key | README |
 | A5 | The ERR trap is left on (`GPU_TUNED_NO_ERR_TRAP` unset). | All | grep | VERSIONING.md |
 | A6 | Every `toolkits/<id>.env` defines every key, including `TOOLKIT_NCCL_VERSION` (a pinned system version, or `none` when no system NCCL is supported for that toolkit), so adding a toolkit forces the question to be answered. | All | `tests/test_common.sh` checks it | found 2026-10-16: cu134 shipped a libnccl built for 13.3 because the key was simply absent |
+| A7 | No `gpu_tuned_*` function is defined outside the vendored `common.sh` (Principle 1): logic two repos need goes in tuned-common. A repo-specific helper takes a repo prefix (`cuvs_`, `raft_`, `faiss_`) and stays in the repo. | All | `tuned_compliance.sh` A7: no `gpu_tuned_*() {` definition in the repo's own scripts | review of 2026-10-17 (raft/cuvs/faiss defined `gpu_tuned_assert_cmake_cache_consistent`, `gpu_tuned_verify_pin_honored`, `gpu_tuned_verify_cccl_toolkit_match` locally); owner decision 2026-10-17 |
 
 ### B. Entry points and stage order
 
@@ -282,7 +283,7 @@ change its Check column to name the function.
   `LLAMA_TUNED_BUILD_NUMBER` commit count is to be removed from its flow (E6); NYI.
 - 2026-10-17, correction of my own record: the entries above and the C2/E4 rows were first dated 2026-10-16 in error
   (the decisions were made on 2026-10-17); they now say 2026-10-17.
-- Review findings not yet acted on: raft, cuvs and faiss define `gpu_tuned_*` helpers locally in `env.sh`
-  (`gpu_tuned_assert_cmake_cache_consistent`, `gpu_tuned_verify_cccl_toolkit_match`,
-  `gpu_tuned_verify_pin_honored`), against Principle 1; the H5/I1/H6 sequence for committing the DRAFT
+- 2026-10-17, owner: (8) A7 added; the three local helpers moved into tuned-common.sh (the repos adopt them on their
+  next sync).
+- Review findings not yet acted on: the H5/I1/H6 sequence for committing the DRAFT
   notes is unspecified; ID order (G5, G6, G4; H6, H7, H8, H5) is not numeric.
