@@ -144,9 +144,13 @@ chk_A2() {
 chk_A3() {
     local miss="" fn
     [[ -f "${T}/env.sh" ]] || { fail "tuned/env.sh missing"; return; }
-    for fn in gpu_tuned_load_toolkit gpu_tuned_verify_toolkit gpu_tuned_load_repo_env; do
-        [[ -n "$(nc_grep "${fn}" "${T}/env.sh")" ]] || miss="${miss} ${fn}"
-    done
+    # the toolkit is loaded and verified either by gpu_tuned_select_toolkit (which does both) or by the two calls
+    if [[ -z "$(nc_grep 'gpu_tuned_select_toolkit' "${T}/env.sh")" ]]; then
+        for fn in gpu_tuned_load_toolkit gpu_tuned_verify_toolkit; do
+            [[ -n "$(nc_grep "${fn}" "${T}/env.sh")" ]] || miss="${miss} ${fn}"
+        done
+    fi
+    [[ -n "$(nc_grep 'gpu_tuned_load_repo_env' "${T}/env.sh")" ]] || miss="${miss} gpu_tuned_load_repo_env"
     [[ -f "${T}/repo.env" ]] || miss="${miss} repo.env"
     [[ -z "${miss}" ]] && pass "env.sh calls the three loaders; repo.env present" || fail "env.sh/repo.env lacks:${miss}"
 }
@@ -221,12 +225,14 @@ chk_G5() {
 }
 chk_H1() {
     [[ -f "${T}/package.sh" ]] || { unk "no package.sh"; return; }
-    local miss=""; for k in package-info.txt '\.sha256'; do [[ -n "$(nc_grep "${k}" "${T}/package.sh")" ]] || miss="${miss} ${k}"; done
+    local miss=""
+    [[ -n "$(nc_grep 'package-info.txt' "${T}/package.sh")" ]] || miss="${miss} package-info.txt"
+    [[ -n "$(nc_grep '\.sha256|gpu_tuned_write_sha256_sidecar' "${T}/package.sh")" ]] || miss="${miss} sha256-sidecar"
     [[ -z "${miss}" ]] && pass "package.sh writes package-info.txt and a .sha256 (the checks themselves are read by a person)" || fail "package.sh does not mention:${miss}"
 }
 chk_H7() {
-    local h; h="$(nc_grep 'gpu_tuned_embed_build_info_json' "${OWN[@]}")"
-    [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_embed_build_info_json call (free-text stamp)"
+    local h; h="$(nc_grep 'gpu_tuned_embed_build_info_json|gpu_tuned_stamp_lib_json' "${OWN[@]}")"
+    [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_stamp_lib_json / gpu_tuned_embed_build_info_json call (free-text stamp)"
 }
 chk_I1() {
     [[ -f "${T}/release.sh" ]] || { unk "no release.sh"; return; }

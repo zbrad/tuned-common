@@ -51,6 +51,8 @@ run 'A2 passes'                           A2 PASS 'true'
 run 'A2 changed sync-common.sh fails'     A2 FAIL 'echo "# x" >> tuned/sync-common.sh'
 run 'A2 missing toolkit fails'            A2 FAIL 'rm tuned/common-data/toolkits/cu133.env'
 run 'A3 passes'                           A3 PASS 'true'
+run 'A3 select_toolkit alone satisfies the toolkit calls' A3 PASS "printf '%s\\n' 'source \"\$(dirname \"\$0\")/common.sh\"' 'gpu_tuned_select_toolkit' 'gpu_tuned_load_repo_env' > tuned/env.sh"
+run 'A3 select_toolkit without repo.env loading fails' A3 FAIL "printf '%s\\n' 'gpu_tuned_select_toolkit' > tuned/env.sh"
 run 'A3 no repo.env fails'                A3 FAIL 'rm tuned/repo.env'
 run 'A3 loader only in a comment fails'   A3 FAIL "sed -i 's/^gpu_tuned_load_toolkit/# gpu_tuned_load_toolkit/' tuned/env.sh"
 run 'A4 passes'                           A4 PASS 'true'
@@ -85,8 +87,10 @@ run 'E6 commit count is flagged for a person' E6 UNKNOWN 'echo "n=\$(git rev-lis
 run 'G5 passes'                           G5 PASS 'true'
 run 'G5 without resolves_in is UNKNOWN'   G5 UNKNOWN 'echo "# nothing" > tuned/smoke_test.sh'
 run 'H1 passes'                           H1 PASS 'true'
+run 'H1 the shared sidecar helper passes'    H1 PASS 'printf "%s\\n" "echo package-info.txt" "gpu_tuned_write_sha256_sidecar x" > tuned/package.sh'
 run 'H1 no sha256 sidecar fails'          H1 FAIL 'echo "echo package-info.txt" > tuned/package.sh'
 run 'H7 passes'                           H7 PASS 'true'
+run 'H7 the shared stamp helper passes'     H7 PASS "sed -i 's/gpu_tuned_embed_build_info_json/gpu_tuned_stamp_lib_json/' tuned/build.sh"
 run 'H7 free-text stamp fails'            H7 FAIL "sed -i '/gpu_tuned_embed_build_info_json/d' tuned/build.sh"
 run 'I1 passes'                           I1 PASS 'true'
 run 'I1 release.sh without DRAFT gate fails' I1 FAIL "sed -i 's/DRAFT//' tuned/release.sh"
