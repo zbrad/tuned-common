@@ -950,5 +950,28 @@ check "repo_env: newly setting a protected key that was unset is flagged" 1 \
 check "repo_env: a missing file is an error" 1 "no such file" "-" "${base}; gpu_tuned_load_repo_env '${re}/none.env'"
 rm -rf "${re}"
 
+# --- helpers moved from the consumers' env.sh (A7) ---
+hc="$(mktemp -d)"
+mkdir -p "${hc}/repo/cpp" "${hc}/b1" "${hc}/b2" "${hc}/cuda-13.3/x" "${hc}/cuda-13.2/x" "${hc}/cuda-12.9/x"
+printf 'CMAKE_CUDA_COMPILER:FILEPATH=/usr/local/cuda-13.3/bin/nvcc\nCMAKE_HOME_DIRECTORY:INTERNAL=%s/repo/cpp\n' "${hc}" > "${hc}/b1/CMakeCache.txt"
+printf 'CMAKE_CUDA_COMPILER:FILEPATH=/usr/local/cuda-13.3/bin/nvcc\nCMAKE_HOME_DIRECTORY:INTERNAL=/elsewhere/cpp\n' > "${hc}/b2/CMakeCache.txt"
+henv="${pre}; export CUDA_HOME=/usr/local/cuda-13.3 GPU_TUNED_REPO_ROOT='${hc}/repo'"
+check "cache_consistent: no cache yet passes" 0 "-" "-" "${henv}; gpu_tuned_assert_cmake_cache_consistent '${hc}/none'"
+check "cache_consistent: matching compiler and source passes" 0 "-" "-" "${henv}; gpu_tuned_assert_cmake_cache_consistent '${hc}/b1'"
+check "cache_consistent: another toolkit's nvcc fails" 1 "was configured with" "-" \
+  "${pre}; export CUDA_HOME=/usr/local/cuda-13.4 GPU_TUNED_REPO_ROOT='${hc}/repo'; gpu_tuned_assert_cmake_cache_consistent '${hc}/b1'"
+check "cache_consistent: another source tree fails" 1 "source tree /elsewhere/cpp" "-" "${henv}; gpu_tuned_assert_cmake_cache_consistent '${hc}/b2'"
+check "cache_consistent: GPU_TUNED_CMAKE_SOURCE_DIR overrides the source tree" 0 "-" "-" \
+  "${henv}; GPU_TUNED_CMAKE_SOURCE_DIR=/elsewhere/cpp gpu_tuned_assert_cmake_cache_consistent '${hc}/b2'"
+check "pin_honored: nothing pinned passes" 0 "-" "-" "${pre}; gpu_tuned_verify_pin_honored CUB '' '${hc}/cuda-13.3'"
+check "pin_honored: the pinned directory was used" 0 "-" "OK: CUB used" "${pre}; gpu_tuned_verify_pin_honored CUB '${hc}/cuda-13.3' '${hc}/cuda-13.3/'"
+check "pin_honored: a silent override is fatal" 1 "silently overridden" "-" "${pre}; gpu_tuned_verify_pin_honored CUB '${hc}/cuda-13.3' '${hc}/cuda-13.2'"
+check "cccl_match: same version passes" 0 "-" "matches this build" "${pre}; gpu_tuned_verify_cccl_toolkit_match '${hc}/cuda-13.3/x' CCCL 13.3"
+check "cccl_match: major mismatch is fatal" 1 "MAJOR version" "-" "${pre}; gpu_tuned_verify_cccl_toolkit_match '${hc}/cuda-12.9/x' CCCL 13.3"
+check "cccl_match: minor mismatch only warns" 0 "minor version differs" "-" "${pre}; gpu_tuned_verify_cccl_toolkit_match '${hc}/cuda-13.2/x' CCCL 13.3"
+check "cccl_match: minor mismatch is fatal when strict" 1 "exact major.minor" "-" "${pre}; GPU_TUNED_STRICT_TOOLKIT_MATCH=1 gpu_tuned_verify_cccl_toolkit_match '${hc}/cuda-13.2/x' CCCL 13.3"
+check "cccl_match: no directory is skipped" 0 "no resolved directory" "-" "${pre}; gpu_tuned_verify_cccl_toolkit_match '' CCCL 13.3"
+rm -rf "${hc}"
+
 echo; echo "passed=${PASS} failed=${FAIL} skipped=${SKIPPED}"
 [[ "${FAIL}" -eq 0 ]]
