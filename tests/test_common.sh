@@ -766,6 +766,46 @@ check "so_names_cmake axes: an unlisted target is left alone" 0 "-" "^libplain\.
 rm -rf "${sa}"
 fi
 
+# --- shared helpers: sha256 sidecar, toolkit selection, JSON stamp of a library (A7) ---
+sc="$(mktemp -d)"; echo payload > "${sc}/pkg.tar.gz"
+check "sidecar: written in sha256sum format with the base name" 0 "-" "^Checksum: pkg\.tar\.gz\.sha256$" "${pre}; gpu_tuned_write_sha256_sidecar '${sc}/pkg.tar.gz'"
+check "sidecar: the file is '<digest>  <name>'" 0 "-" "^[0-9a-f]{64}  pkg\.tar\.gz$" "cat '${sc}/pkg.tar.gz.sha256'"
+check "sidecar: verify passes on a match" 0 "-" "-" "${pre}; gpu_tuned_verify_sha256_sidecar '${sc}/pkg.tar.gz'"
+check "sidecar: verify detects a changed tarball" 1 "does not match pkg\.tar\.gz" "-" "cp -r '${sc}' '${sc}2'; echo tamper >> '${sc}2/pkg.tar.gz'; ${pre}; gpu_tuned_verify_sha256_sidecar '${sc}2/pkg.tar.gz'"
+check "sidecar: verify names a missing sidecar" 1 "pkg\.tar\.gz\.sha256 not found" "-" "rm -f '${sc}2/pkg.tar.gz.sha256'; ${pre}; gpu_tuned_verify_sha256_sidecar '${sc}2/pkg.tar.gz'"
+check "sidecar: write refuses a missing file" 1 "no such file" "-" "${pre}; gpu_tuned_write_sha256_sidecar '${sc}/nothing'"
+rm -rf "${sc}" "${sc}2"
+if [ ! -d /usr/local/cuda-13.3 ]; then
+    skip "select_toolkit: loads and verifies a named toolkit" "needs /usr/local/cuda-13.3; NOT verified on this machine"
+else
+tkenv="${pre}; export GPU_TUNED_PLATFORM=\$(uname -m); D='${LIB%/*}'"
+check "select_toolkit: CUDA_TAG names it" 0 "-" "^cu133 13.3 /usr/local/cuda-13.3$" "${tkenv}; CUDA_TAG=cu133 gpu_tuned_select_toolkit \"\$D\" gb10 >/dev/null; echo \"\$CUDA_TAG \$CUDA_VER \$CUDA_HOME\""
+check "select_toolkit: CUDA_VER names it" 0 "-" "^cu133$" "${tkenv}; CUDA_VER=13.3 gpu_tuned_select_toolkit \"\$D\" gb10 >/dev/null; echo \"\$CUDA_TAG\""
+check "select_toolkit: a repo prefix is consulted first" 0 "-" "^cu133$" "${tkenv}; GPU_TUNED_TOOLKIT_ENV_PREFIX=FAISS_ FAISS_CUDA_TAG=cu133 gpu_tuned_select_toolkit \"\$D\" gb10 >/dev/null; echo \"\$CUDA_TAG\""
+check "select_toolkit: a tag and a version that disagree are refused" 1 "conflicts with toolkit cu133" "-" "${tkenv}; CUDA_TAG=cu133 CUDA_VER=13.4 gpu_tuned_select_toolkit \"\$D\" gb10"
+check "select_toolkit: none named is an error that lists the toolkits (no default)" 1 "no toolkit specified" "-" "${tkenv}; env -u CUDA_TAG -u CUDA_VER bash -c \"source '${LIB}'; gpu_tuned_select_toolkit \\\"\$D\\\" gb10\" </dev/null"
+fi
+if ! command -v gcc >/dev/null 2>&1 || ! command -v objcopy >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+    skip "stamp_lib_json: stamp, drop the legacy section, verify" "needs gcc, objcopy and python3; NOT verified on this machine"
+else
+sl="$(mktemp -d)"
+(
+    set -e; cd "${sl}"
+    printf 'int f(void){return 1;}\n' > f.c
+    gcc -shared -fPIC f.c -o libf.so
+    printf 'legacy text\n' > legacy.txt
+    objcopy --add-section .oldinfo_build_info=legacy.txt libf.so
+) >/dev/null 2>&1
+senv="${pre}; export GPU_TUNED_VARIANT=gb10 GPU_TUNED_HW_LABEL=hw GPU_TUNED_CUDA_ARCH=121a CUDA_TAG=cu133 CUDA_VER=13.3 CUDA_HOME=/usr/local/cuda-13.3"
+check "stamp_lib_json: stamps and reads back the release first" 0 "-" '^"release": "v0\.20261017\.0-gb10-cu133"$' \
+  "${senv}; gpu_tuned_stamp_lib_json '${sl}/libf.so' demo v0.20261017.0-gb10-cu133 .oldinfo_build_info deps.x=1 && gpu_tuned_read_build_info '${sl}/libf.so' | python3 -c 'import sys,json; d=json.load(sys.stdin); print(\"\\\"release\\\": \\\"\"+d[\"release\"]+\"\\\"\")'"
+check "stamp_lib_json: the legacy section is gone" 0 "-" "^0$" "readelf -S '${sl}/libf.so' | grep -c oldinfo_build_info || true"
+check "stamp_lib_json: the new section is there" 0 "-" "^1$" "readelf -S '${sl}/libf.so' | grep -c tuned_build_info || true"
+check "stamp_lib_json: extra fields are kept" 0 "-" "^1$" "${senv}; gpu_tuned_read_build_info '${sl}/libf.so' | python3 -c 'import sys,json; print(json.load(sys.stdin)[\"deps\"][\"x\"])'"
+check "stamp_lib_json: a missing file is refused" 1 "need <elf> <package> <release-tag>" "-" "${senv}; gpu_tuned_stamp_lib_json '${sl}/none.so' demo v0.20261017.0-gb10-cu133"
+rm -rf "${sl}"
+fi
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: one fixed cmake dir per toolkit under tuned/build/<cuda>" 0 "-" "^/r/tuned/build/cu133/cmake$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"

@@ -2515,6 +2515,69 @@ gpu_tuned_verify_cccl_toolkit_match() {
     echo "OK: ${pkg_name} resolved to CUDA ${found_ver}, matches this build's CUDA ${expected_cuda_ver}"
 }
 
+# --- helpers that three or four consumers had copied (docs/ARCHITECTURE.md A7) -------------------------------
+
+# gpu_tuned_write_sha256_sidecar <tarball> -- write <tarball>.sha256 in sha256sum format (digest, two spaces, the
+# file's base name, so `sha256sum -c` works from the tarball's directory) and check it straight away. H1/I3: the
+# release attaches it. Prints the sidecar's base name. rc 1 on any failure.
+gpu_tuned_write_sha256_sidecar() {
+    local t="${1:-}" side
+    [ -f "${t}" ] || { echo "ERROR: gpu_tuned_write_sha256_sidecar: no such file: ${t:-<none>}" >&2; return 1; }
+    side="${t}.sha256"
+    (cd "$(dirname "${t}")" && sha256sum "$(basename "${t}")" > "$(basename "${side}")") || return 1
+    gpu_tuned_verify_sha256_sidecar "${t}" || return 1
+    echo "Checksum: $(basename "${side}")"
+}
+
+# gpu_tuned_verify_sha256_sidecar <tarball> -- rc 0 if <tarball>.sha256 exists and matches the tarball; rc 1 with a
+# message naming the cause (missing sidecar, mismatch) otherwise. Quiet on success.
+gpu_tuned_verify_sha256_sidecar() {
+    local t="${1:-}" side
+    [ -f "${t}" ] || { echo "ERROR: gpu_tuned_verify_sha256_sidecar: no such file: ${t:-<none>}" >&2; return 1; }
+    side="${t}.sha256"
+    [ -f "${side}" ] || { echo "ERROR: ${side} not found -- package again (package.sh writes the sha256 sidecar)." >&2; return 1; }
+    (cd "$(dirname "${t}")" && sha256sum -c --quiet "$(basename "${side}")") >/dev/null 2>&1 \
+        || { echo "ERROR: ${side} does not match $(basename "${t}")." >&2; return 1; }
+}
+
+# gpu_tuned_select_toolkit <data-dir> <variant> -- the toolkit-selection block every tuned env.sh had: the toolkit
+# is named (never defaulted or guessed) by CUDA_TAG (cu133) or CUDA_VER (13.3), loaded from <data-dir>/toolkits,
+# checked for a tag/version conflict, and verified (gpu_tuned_load_toolkit, gpu_tuned_verify_toolkit). A repo with
+# its own variable names sets GPU_TUNED_TOOLKIT_ENV_PREFIX (faiss: FAISS_), which is consulted first
+# (FAISS_CUDA_TAG, FAISS_CUDA_VER), then CUDA_TAG / CUDA_VER. Exports what gpu_tuned_load_toolkit does. rc 1 loudly.
+gpu_tuned_select_toolkit() {
+    local data="${1:-}" variant="${2:-}" pre="${GPU_TUNED_TOOLKIT_ENV_PREFIX:-}" tk="" ver="" tag_var ver_var
+    tag_var="${pre}CUDA_TAG"; ver_var="${pre}CUDA_VER"
+    tk="${!tag_var:-${CUDA_TAG:-}}"
+    ver="${!ver_var:-${CUDA_VER:-}}"
+    if [ -z "${tk}" ] && [ -n "${ver}" ]; then tk="cu${ver//./}"; fi          # 13.3 -> cu133
+    gpu_tuned_load_toolkit "${data}" "${variant}" "${tk}" || return 1
+    if [ -n "${ver}" ] && [ "${ver}" != "${TOOLKIT_CUDA_VER}" ]; then
+        echo "[tuned/env] ERROR: CUDA version ${ver} conflicts with toolkit ${CUDA_TAG} (CUDA ${TOOLKIT_CUDA_VER})." >&2
+        return 1
+    fi
+    gpu_tuned_verify_toolkit || return 1
+}
+
+# gpu_tuned_stamp_lib_json <elf> <package> <release-tag> [legacy-section] [name=value...] -- stamp a staged shared
+# object with the JSON build info the way every native packager does (H7): remove the build-time free-text section
+# [legacy-section] (e.g. .faiss_build_info) if one is given, embed .tuned_build_info with the standard fields from the
+# environment (GPU_TUNED_VARIANT/HW_LABEL/CUDA_ARCH, CUDA_TAG/CUDA_VER, the toolkit's nvcc version) plus any extra
+# name=value fields (deps.*), then verify release, variant and cuda.tag read back. Run after the last rewrite of the
+# file (patchelf drops nothing, but re-verify with gpu_tuned_verify_build_info_json after a rename). rc 1 loudly.
+gpu_tuned_stamp_lib_json() {
+    local elf="${1:-}" package="${2:-}" release="${3:-}" legacy="${4:-}" nvcc_full
+    shift $(( $# < 4 ? $# : 4 ))
+    [ -f "${elf}" ] && [ -n "${package}" ] && [ -n "${release}" ] || { echo "ERROR: gpu_tuned_stamp_lib_json: need <elf> <package> <release-tag> [legacy-section] [name=value...]" >&2; return 1; }
+    [ -z "${legacy}" ] || objcopy --remove-section "${legacy}" "${elf}" || return 1
+    nvcc_full="$("${CUDA_HOME}/bin/nvcc" --version 2>/dev/null | sed -n 's/.*release [0-9.]*, V\([0-9.]*\).*/\1/p' | head -1)"
+    gpu_tuned_embed_build_info_json "${elf}" \
+        "package=${package}" "component=$(basename "${elf}")" "release=${release}" "variant=${GPU_TUNED_VARIANT}" \
+        "hardware=${GPU_TUNED_HW_LABEL}" "arch=sm_${GPU_TUNED_CUDA_ARCH}" \
+        "cuda.tag=${CUDA_TAG}" "cuda.version=${CUDA_VER}" "cuda.nvcc=${nvcc_full:-unknown}" "$@" || return 1
+    gpu_tuned_verify_build_info_json "${elf}" "release=${release}" "variant=${GPU_TUNED_VARIANT}" "cuda.tag=${CUDA_TAG}"
+}
+
 if [[ -z "${GPU_TUNED_NO_ERR_TRAP:-}" && -z "$(trap -p ERR)" ]]; then
     set -o errtrace
     trap 'gpu_tuned_on_err "$?" "${BASH_COMMAND}"' ERR
