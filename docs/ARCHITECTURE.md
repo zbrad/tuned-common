@@ -110,10 +110,10 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| F1 | Every shared object we ship has a unique `-tuned` name, SONAME and NEEDED entries (`gpu_tuned_rename_package`), with the hyphen form `lib<name>-tuned.so`. | N | package gate; `readelf -d` | decisions/2026-10-15-tuned-shared-object-suffix-hyphen (revalidate 2027-10-15) |
+| F1 | Every shared object we ship has a unique name that carries exactly the axes its contents depend on, and the same name is its file name, SONAME and every NEEDED entry: a library **with device code** (cubin or PTX per `cuobjdump --list-elf`/`--list-ptx`) is `lib<name>-<variant>-<toolkit>.so` (`libraft-gb10-cu133.so`); one **without** is `lib<name>-<toolkit>.so` (`librmm-cu133.so`). The test is mechanical, never "neutral by inspection". **NYI:** `gpu_tuned_rename_package`, `gpu_tuned_tuned_so_name` and the `-tuned` mark still implement the superseded generic form; librmm, librapids_logger and llama.cpp's libraries ship `-tuned` names today. | N | package gate (device-code classifier NYI); `readelf -d`, `cuobjdump` | owner decision 2026-10-17 (`decisions/2026-10-17-shared-object-names-carry-their-axes.md`; supersedes decisions/2026-10-15-tuned-shared-object-suffix-hyphen for shared objects; revalidate 2027-10-15) |
 | F2 | The package gate fails if a stock library name is NEEDED or any shared object is neither ours nor a recorded system library. | N | gate present | tuned-common helpers |
 | F3 | Shipped executables carry the `-tuned` suffix (`llama-server-tuned`). | N that ship executables | tarball listing | practice (llama.cpp 6de6e9dac) |
-| F4 | Wheels' shared objects take the same generic `-tuned` form as F1 (`libtorch_cuda-tuned.so`, `librmm-tuned.so`: file name, SONAME, NEEDED); variant and toolkit stay in the wheel's local version and the build info, not the file name. **NYI:** torch's libraries and the raft wheels still ship the stock names; every consumer linking torch by name is rebuilt (user's todo list). | W, raft wheels | `readelf -d` on the wheel's libraries | user decision 2026-10-16 (`decisions/2026-10-16-wheel-shared-objects-generic-tuned-suffix.md`; replaces "undecided", handoff 2026-10-14) |
+| F4 | Wheels' shared objects follow F1 (torch's `libtorch_cuda` -> `libtorch_cuda-<variant>-<toolkit>.so`, its host-only libraries -> `-<toolkit>.so`; `librmm-<toolkit>.so`, `librapids_logger-<toolkit>.so`); the wheel's local version and build info carry the same variant and toolkit. A wheel that ships a library must also ship every `-<toolkit>`/`-<variant>-<toolkit>` library it NEEDS (the stock rapids-logger wheel carries the stock name). **NYI:** torch's libraries and the raft wheels still ship the stock names; every consumer linking torch by name is rebuilt, and its names change on every toolkit bump (todo list). Per-library classification for torch is to be measured with `cuobjdump`. | W, raft wheels | `readelf -d` and `cuobjdump` on the wheel's libraries | owner decisions 2026-10-16 (generic `-tuned`) and 2026-10-17 (axis rule, supersedes it; `decisions/2026-10-17-shared-object-names-carry-their-axes.md`) |
 
 ### G. Testing
 
@@ -285,5 +285,10 @@ change its Check column to name the function.
   (the decisions were made on 2026-10-17); they now say 2026-10-17.
 - 2026-10-17, owner: (8) A7 added; the three local helpers moved into tuned-common.sh (the repos adopt them on their
   next sync).
+- 2026-10-17, owner: (9) shared-object names carry the axes the library depends on: `-<variant>-<toolkit>` with
+  device code, `-<toolkit>` without (F1/F4), superseding the generic `-tuned` suffix for shared objects; executables
+  (F3) unchanged. Reason: librmm was measured on cu133 vs cu134 (no device code; exported symbols identical, code
+  and shipped CCCL-typed headers differ), so it is variant-neutral but toolkit-bound; neutrality is not inferred
+  from a NEEDED list. Nothing implemented. Details and costs: the decision file.
 - Review findings not yet acted on: the H5/I1/H6 sequence for committing the DRAFT
   notes is unspecified; ID order (G5, G6, G4; H6, H7, H8, H5) is not numeric.
