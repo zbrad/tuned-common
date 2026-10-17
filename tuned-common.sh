@@ -1654,7 +1654,7 @@ gpu_tuned_date_label() {
 # gpu_tuned_native_tag <variant> <cuda-tag> <label> -- the release tag of a native (non-wheel)
 # build: v0.<YYYYMMDD>.<seq>-<variant>-<cuda-tag>, e.g. v0.20261011.0-gb10-cu134. <label> is
 # "<YYYYMMDD>[.<seq>]" from gpu_tuned_allocate_date_label; the sequence is always written here
-# (0 for a bare date), where a wheel label omits it. gpu_tuned_date_label reads the tag back.
+# (0 for a bare date), as a wheel version does too (user decision 2026-10-16). gpu_tuned_date_label reads the tag back.
 gpu_tuned_native_tag() {
     local variant="${1:-}" cuda_tag="${2:-}" label="${3:-}" date seq
     date="${label%%.*}"

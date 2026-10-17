@@ -6,7 +6,7 @@
   "scheme": {
     "wheel_label": "<public version>+<variant>.cu<cuda>.<YYYYMMDD>[.<seq>]",
     "wheel_example": "2.15.0+gb10.cu134.20260923",
-    "native_tag": "v0.<YYYYMMDD>.<seq>-<variant>-cu<cuda>  (seq 0 is written in full on tags, omitted on wheel labels)",
+    "native_tag": "v0.<YYYYMMDD>.<seq>-<variant>-cu<cuda>  (seq is always written, 0 for the first build, on tags and wheel versions since 2026-10-16)",
     "label_date_source": "committer date (UTC) of the tuned HEAD commit, read with TZ=UTC and git's format-local (gpu_tuned_head_date), so rebuilding a commit reproduces its label; most repos' HEAD is from 2026-09-23 UTC",
     "reference": "docs/VERSIONING.md"
   },

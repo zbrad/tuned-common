@@ -27,7 +27,11 @@ shorter rule elsewhere disagree, fix one of them: do not leave both.
   images at `ghcr.io/open-webui/open-webui` with `vX.Y.Z` and `git-<sha>` tags (docs.openwebui.com/deployment/docker-images). The
   zbrad forks' GitHub releases publish nothing of their own (open-webui's mirror upstream's notes with no assets, ComfyUI lists none).
   What a fleet deployment is (archive, container image, both) and where it is published are open, to be decided when the first is built. Applicability below uses these words.
-- **label**: `<YYYYMMDD>[.<seq>]`, the build identity (section 5).
+- **label**: `<YYYYMMDD>[.<seq>]`, the build identity (section 5). As a value inside the tooling (`gpu_tuned_date_label`) sequence 0
+  reads as the bare date; in a tag, tarball name or wheel version the sequence is always written (`.0`, E1/E2).
+- **artifact kind**: `native` (a tarball) or `wheel`. A repo ships one or more kinds and each requirement applies to the kinds it
+  names, so raft, cuvs and faiss (tarballs and wheels) are measured once per kind. A repo declares its kinds, exceptions and
+  attestations in `tuned/compliance.conf` (section 6).
 - **vendored**: a pinned copy of tuned-common files committed in the consumer repo.
 
 ## 2. Principles
@@ -52,8 +56,8 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| A1 | `tuned/common.sh`, `tuned/sync-common.sh` and `tuned/common.sh.sha` are tracked, and `tuned/sync-common.sh check` exits 0 (the vendored copy is tuned-common's current `main`, or a pin the repo states). | All | run the check | README, "Keeping a vendored copy in sync" |
-| A2 | `tuned/common-data/` is vendored (devices, toolkits), refreshed by the same sync; the repo's own `sync-common.sh` is current (an old one skips new data files). | All | `diff tuned/sync-common.sh <tuned-common>/sync-common.sh`; `ls tuned/common-data/toolkits/DEFAULT` | README; found 2026-10-15 |
+| A1 | `tuned/common.sh`, `tuned/sync-common.sh` and `tuned/common.sh.sha` are tracked, and `tuned/sync-common.sh check` exits 0 (the vendored copy is tuned-common's current `main`; there is no pin file, so a repo that must stay behind records an exception in `tuned/compliance.conf` with the reason). `common.sh` must also equal tuned-common's file at the commit in `common.sh.sha`. | All | `tuned_compliance.sh`: byte comparison against tuned-common `origin/main` (as last fetched) and the sha'd commit; `sync-common.sh check` with `--online` | README, "Keeping a vendored copy in sync" |
+| A2 | `tuned/common-data/` is vendored (devices, toolkits), refreshed by the same sync; the repo's own `sync-common.sh` is current (an old one skips new data files). | All | `diff tuned/sync-common.sh <tuned-common>/sync-common.sh`; `tuned/common-data/toolkits/*.env` and `devices/*.conf` match tuned-common's lists (there is no `toolkits/DEFAULT` since 2026-10-16) | README; found 2026-10-15 |
 | A3 | `tuned/env.sh` sources `common.sh`, asserts the platform, loads the toolkit with `gpu_tuned_load_toolkit` and verifies it (`gpu_tuned_verify_toolkit`), and loads repo settings with `gpu_tuned_load_repo_env` from `tuned/repo.env`. | All | read `env.sh` | README |
 | A4 | `tuned/repo.env` only adds repo-specific keys; it never sets a device, toolkit or `CUDA_*` value. | All | `gpu_tuned_load_repo_env` fails loudly on any such key | README |
 | A5 | The ERR trap is left on (`GPU_TUNED_NO_ERR_TRAP` unset). | All | grep | VERSIONING.md |
@@ -73,7 +77,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
 | C1 | Each toolkit (and variant, where trees would otherwise mix) has its own build tree, tarball directory and test log. | N, W | the paths contain the cuda tag | `gpu_tuned_cuda_subdir` header |
-| C2 | The canonical tree is `tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` (`cmake/`, `dist/`, `releases/`, `ccache/`), with a variant claim (`gpu_tuned_claim_toolkit_tree`). A repo that cannot use it records why and its layout in its docs. **Open:** faiss uses `build_output/` + `_build/` and llama.cpp `build-tuned/<cuda>/<variant>/`; whether to converge is undecided. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; deviations observed 2026-10-15 |
+| C2 | The canonical tree is `tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` (`cmake/`, `dist/`, `releases/`, `ccache/`), with a variant claim (`gpu_tuned_claim_toolkit_tree`). A repo that cannot use it records why and its layout in its docs. **Exception (decided 2026-10-16):** faiss uses `build_output/` + `_build/` and llama.cpp `build-tuned/<cuda>/<variant>/`; both stay as recorded exceptions in their `tuned/compliance.conf` until convergence is taken up after raft and cuvs are compliant. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; deviations observed 2026-10-15 |
 | C3 | Before configuring, an existing CMake cache is checked against the toolkit's nvcc and the source tree; a mismatch fails and names the directory to remove. | N | read `build.sh` | practice (cuvs `env.sh`, llama.cpp `build.sh`) |
 | C4 | ccache is per toolkit (`CCACHE_DIR` inside the toolkit tree) with an explicit size. | N | grep `CCACHE_DIR` | practice (cuvs, llama.cpp) |
 | C5 | Default build parallelism is `gpu_tuned_jobs` (largest prime <= nproc-2); an environment override wins. | All | grep: no bare `$(nproc)` as a default | rollout 2026-10-15 |
@@ -84,7 +88,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| D1 | A consumer of another tuned repo's tarball fetches that repo's newest release (`gpu_tuned_newest_release_tag`: the highest date label, ranked as numbers, never list order; an older-form tag only as a noted fallback) and re-fetches whenever the newest tag differs from the one it unpacked (marker file); a stale unpacked copy is never reused silently. | N consuming N (cuvs<-raft, faiss<-cuvs) | `.release_tag` marker present and compared | faiss bug found 2026-10-15 |
+| D1 | A consumer of another tuned repo's tarball fetches that repo's newest release (`gpu_tuned_newest_release_tag`: the highest date label, ranked as numbers, never list order; an older-form tag only as a noted fallback) and never reuses an unpacked copy whose tag differs from the newest, silently (the property; a marker file such as faiss's `.release_tag`, or a directory named by the tag as in cuvs, are both acceptable mechanisms). | N consuming N (cuvs<-raft, faiss<-cuvs) | human read, then attested in `compliance.conf`; a fixture test of the lookup is NYI | faiss bug found 2026-10-15 |
 | D2 | The dependency's package must carry everything its CMake config needs (nvtx3 included); the packager proves it with a consumer configure against the package alone (`gpu_tuned_verify_consumer_configure`). | N that ship a CMake package | package-time gate present | tuned-common 3b5f4d0 |
 | D3 | The producer->consumer pairing is recorded and test-run (`tuned/docs/RELEASE_PINS.md` for the RAPIDS chain), including which releases are superseded or deleted. | raft, cuvs | file present, row per release | practice |
 
@@ -95,7 +99,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | E1 | A wheel carries `<public version>+<variant>.cu<cuda>.<YYYYMMDD>.<seq>` (the sequence always written, `0` for the first, as in E2), built only by `gpu_tuned_local_version_dated`/`gpu_tuned_build_local_version`, never by hand. The public version is upstream's. Wheels published before 2026-10-16 with the bare date are not renamed and read as sequence 0. | W | `gpu_tuned_date_label` parses the wheel name | VERSIONING.md (user decision 2026-10-11; `.0` written, user decision 2026-10-16) |
 | E2 | A native release tag is `v0.<YYYYMMDD>.<seq>-<variant>-<cuda-tag>` (the sequence always written, `0` for the first), built by `gpu_tuned_native_tag`. | N | `gpu_tuned_date_label <tag>` returns a label | VERSIONING.md; `docs/upstream-vs-tuned-versions.json` `scheme.native_tag`; user 2026-10-15 ("back to UTC dates ... build count per date") |
 | E3 | The date is the UTC committer date of the tuned `HEAD` (`gpu_tuned_head_date`); the sequence is the lowest unused for that date among the repo's tags (`gpu_tuned_allocate_date_label`). Never the wall clock, never a commit count or a sha. | All | read the label source | VERSIONING.md |
-| E4 | The label is allocated once, at the earliest stage that bakes it into an artifact, and recorded in a file the later stages read: `package-info.txt` for native tarballs whose identity is stamped at packaging (raft, cuvs, faiss), `<build>/release-label` for llama.cpp, whose label is compiled into the binary at build time, and the wheel script for wheels. Later stages never recompute it (a notes commit moves `HEAD` and its date). Nothing reserves a label before publish, so the full commit stays in the build info and the release gate checks the tag is free. | N, W | the recorded file; `release.sh` reads it | practice 2026-10-15 (llama.cpp, user: "build info ... release version more relevant") |
+| E4 | The label is allocated once, at the earliest stage that bakes it into an artifact, and recorded in a file the later stages read: `package-info.txt` for native tarballs whose identity is stamped at packaging (raft, cuvs, faiss), `<build>/release-label` for llama.cpp, whose label is compiled into the binary at build time, and the wheel script for wheels. Later stages never recompute it (a notes commit moves `HEAD` and its date). Nothing reserves a label before publish, so the full commit stays in the build info and the release gate checks the tag is free. **If two packages were built for one date and the tag is taken, the gate fails and the maintainer repackages to get the next sequence (decided 2026-10-16: no automatic relabel, no reserving tag).** | N, W | the recorded file; `release.sh` reads it | practice 2026-10-15 (llama.cpp, user: "build info ... release version more relevant") |
 | E5 | Tag, tarball name, release title, notes file name and the artifact's own metadata show the same label. | All | compare | VERSIONING.md |
 | E6 | A commit count may be reported and checked, but identifies nothing: it is repo-relative (llama.cpp's `--version` "build N" is this fork's history count, not upstream's) and rises with every commit. It appears only as `fork.commit_count` in the build info. | All | grep `rev-list --count` outside a version check | user 2026-10-15; decisions/2026-09-10 superseded |
 | E7 | Releases published in an older form are not renamed (consumers pin URLs). Consumers accept both forms and rank any date-label tag above an older one. | All | consumer tag parsers | VERSIONING.md; practice 2026-10-15 (llama.cpp `install.sh`) |
@@ -139,7 +143,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
 | I1 | `release.sh` gates, all reported together: clean tree and `HEAD` pushed; passing test log newer than the build artifacts (compared against the build tree, not staged copies); tarball newer than the test log; a passing smoke log newer than the tarball; `package-info.txt` for this toolkit; only the tracked release notes changed since the packaged commit; notes not a DRAFT. | N | read, run a dry run | practice 2026-10-15; raft, cuvs, faiss, llama.cpp |
-| I2 | Release notes are a tracked file `tuned/releases/RELEASE_NOTES_<label>_<variant>_<cuda>.md`, reviewed by the maintainer and committed before release; the DRAFT line is the gate. | N | file tracked | practice (raft, cuvs) |
+| I2 | Release notes are a tracked file `tuned/releases/RELEASE_NOTES_<native tag without the leading v>.md` (`RELEASE_NOTES_0.20261015.0-gb10-cu133.md`), reviewed by the maintainer and committed before release; the DRAFT line is the gate. | N | file tracked | practice (raft, cuvs) |
 | I3 | Publishing goes through `gpu_tuned_publish_release`, attaching the tarball, its checksum, the notes, the test log and the smoke log. | N | read | tuned-common |
 | I4 | A superseded release that is defective (not merely old) is deleted with its tag; the pins table says so. | raft, cuvs | pins table | practice 2026-10-15 |
 | I5 | `release.sh` runs without publishing unless told (`--publish`) where the release has a second remote effect (a source tag). | N with a source tag (llama.cpp) | read | llama.cpp |
@@ -209,10 +213,27 @@ UNKNOWN, with the evidence (command and output, or file and line). UNKNOWN is a 
 nobody has looked. A repo's score is passes over applicable requirements; the list of FAILs is
 the work. The report is regenerated, not edited by hand.
 
-**Tool (NYI).** `tools/tuned_compliance.sh <repo-path>` would run the mechanical
-checks above (A1, A2, B1, B3, C5, E2 for the newest release tag, E6, H1 presence, I1 presence, J1
-trailers) and print the matrix; the rest need a person to read the script and say so. Until it
-exists the matrix is built by hand, and the date and commit it was built at are recorded.
+**Tool.** `tools/tuned_compliance.sh <repo-path> [--online] [--kinds native,wheel]` prints the matrix
+(ID, status, evidence), the date, and the commits of the repo and of tuned-common. Statuses:
+PASS; FAIL; N/A (the requirement names a kind the repo does not ship); UNKNOWN (not looked at: the
+check needs the network, `gh`, a GPU or a person); EXCEPTION (a recorded, reasoned deviation);
+ATTESTED (a person read it and said so). Without `--online` the checks that need `gh` or the network
+are UNKNOWN. Exit 0 only with no FAIL and no UNKNOWN; 1 with any FAIL; 2 with UNKNOWN only. A repo
+is called compliant only on exit 0 from an `--online` run.
+
+**`tuned/compliance.conf`** (tracked in the repo, read by the tool; one record per line, `#` comments):
+
+```
+kinds: native wheel
+exception: C2 | faiss keeps build_output/ + _build/; convergence deferred until raft and cuvs comply | 2026-10-16
+attest: D1 | cuvs extracts into a directory named by the tag, read build.sh:79 | 2026-10-16 | <repo commit read>
+```
+
+An `exception:` or `attest:` line without a reason or a date is itself a FAIL. An exception is
+a decision recorded, not a way to silence a check: the reason says why, and the date lets it be
+reviewed. Attestations name the commit that was read; the tool reports ATTESTED only while that
+commit is an ancestor of the repo's HEAD and the files the check reads are unchanged since (otherwise
+UNKNOWN again). Requirements without a mechanical check in the tool are UNKNOWN until attested.
 
 **Known gaps (2026-10-15; each verified in the session unless stated).** Compliance has not been measured; these
 are what was already in view.
@@ -243,3 +264,18 @@ A requirement changes only with a dated note here saying who decided it and why;
 that a repo cannot meet is recorded as a deviation in that repo's docs, not by quietly dropping
 the check. Add the check, or say why none exists. When tooling starts enforcing a requirement,
 change its Check column to name the function.
+
+**Decision log** (who decided, when, why):
+
+- 2026-10-16, owner, after an independent (Opus) review of this document: (1) a same-date label collision
+  fails the release gate and the maintainer repackages (E4); no auto-relabel, no reserving tag. (2) A check
+  that cannot run is UNKNOWN and blocks "compliant" until run online or attested (section 6). (3) Applicability
+  is per artifact kind (section 1). (4) C2 stays canonical with recorded exceptions for faiss and llama.cpp.
+- 2026-10-16, review corrections of fact, no policy change: A2's check no longer names the removed
+  `toolkits/DEFAULT`; I2 names the notes files as they exist; D1 states the property, not the marker file;
+  A1 has no pin file (exceptions instead); the stale "omitted on wheel labels" text in `tuned-common.sh` and
+  `upstream-vs-tuned-versions.json` now agrees with E1/E2.
+- Review findings not yet acted on: raft, cuvs and faiss define `gpu_tuned_*` helpers locally in `env.sh`
+  (`gpu_tuned_assert_cmake_cache_consistent`, `gpu_tuned_verify_cccl_toolkit_match`,
+  `gpu_tuned_verify_pin_honored`), against Principle 1; the H5/I1/H6 sequence for committing the DRAFT
+  notes is unspecified; ID order (G5, G6, G4; H6, H7, H8, H5) is not numeric.
