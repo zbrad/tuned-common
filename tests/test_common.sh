@@ -688,6 +688,84 @@ check "so_names_cmake: no output file is an error" 1 "need an output file" "-" "
 rm -rf "${sn}"
 fi
 
+# --- axis names (decisions/2026-10-17): mark argument, device-code classification, rename, gates ---
+check "so_name mark: no device code -> -<toolkit>" 0 "-" "^librmm-cu133\.so$" "${pre}; gpu_tuned_tuned_so_name librmm.so -cu133"
+check "so_name mark: device code -> -<variant>-<toolkit>, a versioned name keeps its suffix" 0 "-" "^libraft-gb10-cu133\.so\.1$" "${pre}; gpu_tuned_tuned_so_name libraft.so.1 -gb10-cu133"
+check "so_name mark: a name that already ends in the mark is unchanged" 0 "-" "^libraft-gb10-cu133\.so$" "${pre}; gpu_tuned_tuned_so_name libraft-gb10-cu133.so -gb10-cu133"
+check "so_name mark: the legacy -tuned mark is replaced, never stacked" 0 "-" "^librmm-cu133\.so$" "${pre}; gpu_tuned_tuned_so_name librmm-tuned.so -cu133"
+check "so_name mark: without a mark argument the generic mark still applies" 0 "-" "^libx-tuned\.so$" "${pre}; gpu_tuned_tuned_so_name libx.so"
+if ! command -v gcc >/dev/null 2>&1 || ! command -v nvcc >/dev/null 2>&1 || ! command -v cuobjdump >/dev/null 2>&1 || ! command -v patchelf >/dev/null 2>&1; then
+    skip "axis names: classification, rename and gates" "needs gcc, nvcc, cuobjdump and patchelf; NOT verified on this machine"
+else
+ax="$(mktemp -d)"; mkdir -p "${ax}/s" "${ax}/sys"
+(
+    set -e; cd "${ax}"
+    printf 'int host_f(void){return 1;}\n' > host.c
+    gcc -shared -fPIC -Wl,-soname,libhost.so host.c -o s/libhost.so
+    printf 'extern "C" int host_f(void);\n__global__ void k(int*p){*p=1;}\nextern "C" int dev_f(void){return host_f()+1;}\n' > dev.cu
+    nvcc -shared -Xcompiler -fPIC -gencode arch=compute_80,code=compute_80 -Xlinker -soname,libdev.so -Xlinker -rpath,'$ORIGIN' dev.cu -o s/libdev.so -L s -l:libhost.so
+    printf 'int sys_f(void){return 3;}\n' > sys.c
+    gcc -shared -fPIC -Wl,-soname,libsysx.so.1 sys.c -o sys/libsysx.so.1
+) >"${ax}/log" 2>&1 || cat "${ax}/log"
+check "has_device_code: a library with a kernel is yes" 0 "-" "-" "${pre}; gpu_tuned_so_has_device_code '${ax}/s/libdev.so'"
+check "has_device_code: a host-only library is no" 1 "-" "-" "${pre}; set +e; gpu_tuned_so_has_device_code '${ax}/s/libhost.so'; exit \$?"
+check "has_device_code: a missing file cannot be classified" 2 "no such file" "-" "${pre}; gpu_tuned_so_has_device_code '${ax}/nothing.so'"
+check "has_device_code: a non-ELF file cannot be classified" 2 "could not classify" "-" "echo hi > '${ax}/t.txt'; ${pre}; gpu_tuned_so_has_device_code '${ax}/t.txt'"
+check "has_device_code: no cuobjdump is a failure, not a no" 2 "cuobjdump not found" "-" "${pre}; CUDA_HOME=/nonexistent PATH=/usr/bin:/bin gpu_tuned_so_has_device_code '${ax}/s/libhost.so'"
+check "mark_for: device code -> -<variant>-<toolkit>" 0 "-" "^-gb10-cu133$" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libdev.so' gb10 cu133"
+check "mark_for: no device code -> -<toolkit>" 0 "-" "^-cu133$" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libhost.so' gb10 cu133"
+check "mark_for: a bad toolkit is refused" 1 "need <elf> <variant> <cuNNN>" "-" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libhost.so' gb10 13.3"
+
+AXM="${ax}/axes.manifest"
+check "axes_manifest: writes '<name> <mark>' by contents" 0 "-" "^libdev\.so -gb10-cu133$" "${pre}; gpu_tuned_axes_manifest '${ax}/s' gb10 cu133 '${AXM}' libdev.so libhost.so && cat '${AXM}'"
+check "axes_manifest: the other line is the toolkit-only one" 0 "-" "^libhost\.so -cu133$" "cat '${AXM}'"
+check "axes_manifest: a name in neither form is refused" 1 "is not in" "-" "${pre}; gpu_tuned_axes_manifest '${ax}/s' gb10 cu133 '${ax}/x.manifest' libghost.so"
+check "axes_manifest: an unrenamed stage fails the axes gate and names both libraries" 1 "VIOLATION: libhost\.so must end in '-cu133'" "-" "${pre}; gpu_tuned_verify_so_axes '${ax}/s' gb10 cu133 -"
+check "axes gate: ... and the device-code one" 1 "VIOLATION: libdev\.so must end in '-gb10-cu133'" "-" "${pre}; gpu_tuned_verify_so_axes '${ax}/s' gb10 cu133 -"
+check "rename by axes: each library gets the mark its contents need" 0 "-" "libdev\.so -> libdev-gb10-cu133\.so" "${pre}; gpu_tuned_rename_sonames '${ax}/s' '${AXM}'"
+check "rename by axes: the host-only one gets the toolkit mark" 0 "-" "^libhost-cu133\.so$" "ls '${ax}/s' | grep host"
+check "rename by axes: SONAMEs carry the same marks" 0 "-" "^libdev-gb10-cu133\.so libhost-cu133\.so$" "echo \$(patchelf --print-soname '${ax}/s/libdev-gb10-cu133.so') \$(patchelf --print-soname '${ax}/s/libhost-cu133.so')"
+check "rename by axes: the device library's DT_NEEDED follows the rename" 0 "-" "^libhost-cu133\.so$" "patchelf --print-needed '${ax}/s/libdev-gb10-cu133.so' | grep libhost"
+check "axes gate: the renamed stage passes" 0 "-" "-" "${pre}; gpu_tuned_verify_so_axes '${ax}/s' gb10 cu133 -"
+check "rename by axes: running it again changes nothing" 0 "-" "-" "${pre}; gpu_tuned_rename_sonames '${ax}/s' '${AXM}' && gpu_tuned_verify_so_axes '${ax}/s' gb10 cu133 -"
+check "axes_manifest: a renamed stage gives the same manifest" 0 "-" "^libdev\.so -gb10-cu133$" "${pre}; gpu_tuned_axes_manifest '${ax}/s' gb10 cu133 '${ax}/again.manifest' libdev.so libhost.so && cat '${ax}/again.manifest'"
+check "unique_sonames with the axis mark: the renamed stage passes" 0 "-" "-" "${pre}; gpu_tuned_verify_unique_sonames '${ax}/s' - '' '^(libc\.so|libm\.so|libstdc\+\+|libgcc_s|libdl|libpthread|librt|ld-linux)' '-(gb10-)?cu133'"
+check "unique_sonames with the generic default: the axis names are not tuned" 1 "is not tuned" "-" "${pre}; gpu_tuned_verify_unique_sonames '${ax}/s' - '' '^(libc\.so|libm\.so|libstdc\+\+|libgcc_s|libdl|libpthread|librt|ld-linux)'"
+check "axes gate: a device library named toolkit-only fails" 1 "VIOLATION: libdev-cu133\.so must end in '-gb10-cu133'" "-" \
+  "rm -rf '${ax}/n1'; cp -r '${ax}/s' '${ax}/n1'; mv '${ax}/n1/libdev-gb10-cu133.so' '${ax}/n1/libdev-cu133.so'; ${pre}; gpu_tuned_verify_so_axes '${ax}/n1' gb10 cu133 -"
+check "axes gate: a host-only library carrying the variant fails" 1 "no device code, so it must not carry the variant" "-" \
+  "rm -rf '${ax}/n2'; cp -r '${ax}/s' '${ax}/n2'; mv '${ax}/n2/libhost-cu133.so' '${ax}/n2/libhost-gb10-cu133.so'; ${pre}; gpu_tuned_verify_so_axes '${ax}/n2' gb10 cu133 -"
+check "axes gate: a SONAME with the wrong mark fails" 1 "has SONAME 'libhost\.so'" "-" \
+  "rm -rf '${ax}/n3'; cp -r '${ax}/s' '${ax}/n3'; patchelf --set-soname libhost.so '${ax}/n3/libhost-cu133.so'; ${pre}; gpu_tuned_verify_so_axes '${ax}/n3' gb10 cu133 -"
+check "axes gate: a recorded system library is exempt" 0 "-" "-" \
+  "rm -rf '${ax}/n4'; cp -r '${ax}/s' '${ax}/n4'; cp '${ax}/sys/libsysx.so.1' '${ax}/n4/'; printf 'libsysx.so.1\n' > '${ax}/n4.sys'; ${pre}; gpu_tuned_verify_so_axes '${ax}/n4' gb10 cu133 '${ax}/n4.sys'"
+check "axes gate: an unrecorded extra library fails" 1 "VIOLATION: libsysx\.so\.1 must end in" "-" \
+  "rm -rf '${ax}/n5'; cp -r '${ax}/s' '${ax}/n5'; cp '${ax}/sys/libsysx.so.1' '${ax}/n5/'; ${pre}; gpu_tuned_verify_so_axes '${ax}/n5' gb10 cu133 -"
+check "axes gate: a library that cannot be classified is a failure" 1 "cannot be classified" "-" \
+  "${pre}; CUDA_HOME=/nonexistent PATH=/usr/bin:/bin gpu_tuned_verify_so_axes '${ax}/s' gb10 cu133 -"
+check "rename_package by axes: renames, repoints a CMake file, passes both gates" 0 "-" "libhost-cu133\.so" \
+  "rm -rf '${ax}/pk'; mkdir -p '${ax}/pk/lib/cmake'; cp '${ax}/s/libhost-cu133.so' '${ax}/pk/lib/libhost.so'; patchelf --set-soname libhost.so '${ax}/pk/lib/libhost.so'; printf 'set(L \"lib/libhost.so\")\n' > '${ax}/pk/lib/cmake/t.cmake'; ${pre}; printf 'libhost.so -cu133\n' > '${ax}/pk.manifest'; gpu_tuned_rename_package '${ax}/pk/lib' '${ax}/pk.manifest' - '' '^(libc\.so|libm\.so|libstdc\+\+|libgcc_s)' '${ax}/pk/lib/cmake' >/dev/null 2>&1; cat '${ax}/pk/lib/cmake/t.cmake'"
+rm -rf "${ax}"
+fi
+if ! command -v cmake >/dev/null 2>&1 || ! command -v gcc >/dev/null 2>&1; then
+    skip "so_names_cmake: axis marks" "needs cmake and gcc; NOT verified on this machine"
+else
+sa="$(mktemp -d)"; mkdir -p "${sa}/src"
+(
+    set -e; cd "${sa}"
+    printf 'int h(void){return 1;}\n' > src/h.c
+    printf 'int d(void){return 2;}\n' > src/d.c
+    printf 'cmake_minimum_required(VERSION 3.24)\nproject(top C)\nadd_library(hostl SHARED h.c)\nadd_library(devl SHARED d.c)\nadd_library(plain SHARED h.c)\n' > src/CMakeLists.txt
+    bash -c "source '${LIB}'; gpu_tuned_so_names_cmake '${sa}/names.cmake'"
+    cmake -S src -B b -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES="${sa}/names.cmake" "-DTUNED_SO_TARGETS=hostl" "-DTUNED_SO_MARK=-cu133" "-DTUNED_SO_DEVICE_TARGETS=devl" "-DTUNED_SO_DEVICE_MARK=-gb10-cu133"
+    cmake --build b
+) >"${sa}/log" 2>&1 || cat "${sa}/log"
+check "so_names_cmake axes: TUNED_SO_TARGETS take TUNED_SO_MARK" 0 "-" "^libhostl-cu133\.so$" "ls '${sa}/b' | grep hostl"
+check "so_names_cmake axes: TUNED_SO_DEVICE_TARGETS take TUNED_SO_DEVICE_MARK" 0 "-" "^libdevl-gb10-cu133\.so$" "ls '${sa}/b' | grep devl"
+check "so_names_cmake axes: an unlisted target is left alone" 0 "-" "^libplain\.so$" "ls '${sa}/b' | grep plain"
+rm -rf "${sa}"
+fi
+
 # --- CUDA-version-specific output dirs ---
 check "out_dir build: one fixed cmake dir per toolkit under tuned/build/<cuda>" 0 "-" "^/r/tuned/build/cu133/cmake$" \
   "${pre}; gpu_tuned_out_dir build /r cu133 gb10"
