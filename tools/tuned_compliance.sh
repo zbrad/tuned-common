@@ -188,8 +188,10 @@ chk_B3() {
     else pass "package.sh does not tag/publish; release.sh does not build/test/package (pattern check; stage order still read by a person)"; fi
 }
 chk_B4() {
-    local h; h="$(nc_grep '/usr/local/cuda([^-0-9]|$)' "${OWN[@]}" "${T}/env.sh" | grep -vE 'echo|printf|>&2')"
-    [[ -z "${h}" ]] && pass "no non-comment /usr/local/cuda outside toolkit data" || fail "$(echo "${h}" | sort -u | first 3)"
+    # no toolkit chosen by guessing: the unversioned /usr/local/cuda, a /usr/local/cuda-* scan, "what is installed"
+    # helpers, nvcc on PATH as a selector, or a CUDA_TAG/CUDA_VER/CUDA_HOME default naming a literal value
+    local h; h="$(nc_grep '/usr/local/cuda([^-0-9]|$)|/usr/local/cuda-(\*|\[)|gpu_tuned_installed_cuda_toolkits|command[[:space:]]+-v[[:space:]]+nvcc|which[[:space:]]+nvcc|\$\{(FAISS_)?CUDA_(TAG|VER|HOME):?[-=][^}$]' "${OWN[@]}" "${T}/env.sh" | grep -vE 'echo|printf|>&2')"
+    [[ -z "${h}" ]] && pass "no toolkit guessed or defaulted outside the toolkit data" || fail "$(echo "${h}" | sort -u | first 3)"
 }
 chk_C5() {
     local h; h="$(nc_grep '\$\(nproc|\$\{?NPROC|nproc\)' "${OWN[@]}" | grep -v gpu_tuned_jobs)"
