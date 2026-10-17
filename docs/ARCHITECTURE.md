@@ -77,7 +77,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
 | C1 | Each toolkit (and variant, where trees would otherwise mix) has its own build tree, tarball directory and test log. | N, W | the paths contain the cuda tag | `gpu_tuned_cuda_subdir` header |
-| C2 | The canonical tree is `tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` (`cmake/`, `dist/`, `releases/`, `ccache/`), with a variant claim (`gpu_tuned_claim_toolkit_tree`). A repo that cannot use it records why and its layout in its docs. **Exception (decided 2026-10-16):** faiss uses `build_output/` + `_build/` and llama.cpp `build-tuned/<cuda>/<variant>/`; both stay as recorded exceptions in their `tuned/compliance.conf` until convergence is taken up after raft and cuvs are compliant. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; deviations observed 2026-10-15 |
+| C2 | The canonical tree is `tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` (`cmake/`, `dist/`, `releases/`, `ccache/`), with a variant claim (`gpu_tuned_claim_toolkit_tree`). A repo that cannot use it records why and its layout in its docs. **Exception (decided 2026-10-17):** faiss uses `build_output/` + `_build/` and llama.cpp `build-tuned/<cuda>/<variant>/`; both stay as recorded exceptions in their `tuned/compliance.conf` until convergence is taken up after raft and cuvs are compliant. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; deviations observed 2026-10-15 |
 | C3 | Before configuring, an existing CMake cache is checked against the toolkit's nvcc and the source tree; a mismatch fails and names the directory to remove. | N | read `build.sh` | practice (cuvs `env.sh`, llama.cpp `build.sh`) |
 | C4 | ccache is per toolkit (`CCACHE_DIR` inside the toolkit tree) with an explicit size. | N | grep `CCACHE_DIR` | practice (cuvs, llama.cpp) |
 | C5 | Default build parallelism is `gpu_tuned_jobs` (largest prime <= nproc-2); an environment override wins. | All | grep: no bare `$(nproc)` as a default | rollout 2026-10-15 |
@@ -99,7 +99,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | E1 | A wheel carries `<public version>+<variant>.cu<cuda>.<YYYYMMDD>.<seq>` (the sequence always written, `0` for the first, as in E2), built only by `gpu_tuned_local_version_dated`/`gpu_tuned_build_local_version`, never by hand. The public version is upstream's. Wheels published before 2026-10-16 with the bare date are not renamed and read as sequence 0. | W | `gpu_tuned_date_label` parses the wheel name | VERSIONING.md (user decision 2026-10-11; `.0` written, user decision 2026-10-16) |
 | E2 | A native release tag is `v0.<YYYYMMDD>.<seq>-<variant>-<cuda-tag>` (the sequence always written, `0` for the first), built by `gpu_tuned_native_tag`. | N | `gpu_tuned_date_label <tag>` returns a label | VERSIONING.md; `docs/upstream-vs-tuned-versions.json` `scheme.native_tag`; user 2026-10-15 ("back to UTC dates ... build count per date") |
 | E3 | The date is the UTC committer date of the tuned `HEAD` (`gpu_tuned_head_date`); the sequence is the lowest unused for that date among the repo's tags (`gpu_tuned_allocate_date_label`). Never the wall clock, never a commit count or a sha. | All | read the label source | VERSIONING.md |
-| E4 | The label is allocated once, at the earliest stage that bakes it into an artifact, and recorded in a file the later stages read: `package-info.txt` for native tarballs whose identity is stamped at packaging (raft, cuvs, faiss), `<build>/release-label` for llama.cpp, whose label is compiled into the binary at build time, and the wheel script for wheels. Later stages never recompute it (a notes commit moves `HEAD` and its date). Nothing reserves a label before publish, so the full commit stays in the build info and the release gate checks the tag is free. **If two packages were built for one date and the tag is taken, the gate fails and the maintainer repackages to get the next sequence (decided 2026-10-16: no automatic relabel, no reserving tag).** | N, W | the recorded file; `release.sh` reads it | practice 2026-10-15 (llama.cpp, user: "build info ... release version more relevant") |
+| E4 | The label is allocated once, at the earliest stage that bakes it into an artifact, and recorded in a file the later stages read: `package-info.txt` for native tarballs whose identity is stamped at packaging (raft, cuvs, faiss), `<build>/release-label` for llama.cpp, whose label is compiled into the binary at build time, and the wheel script for wheels. Later stages never recompute it (a notes commit moves `HEAD` and its date). Nothing reserves a label before publish, so the full commit stays in the build info and the release gate checks the tag is free. **If two packages were built for one date and the tag is taken, the gate fails and the maintainer repackages to get the next sequence (decided 2026-10-17: no automatic relabel, no reserving tag).** | N, W | the recorded file; `release.sh` reads it | practice 2026-10-15 (llama.cpp, user: "build info ... release version more relevant") |
 | E5 | Tag, tarball name, release title, notes file name and the artifact's own metadata show the same label. | All | compare | VERSIONING.md |
 | E6 | A commit count may be reported and checked, but identifies nothing: it is repo-relative (llama.cpp's `--version` "build N" is this fork's history count, not upstream's) and rises with every commit. It appears only as `fork.commit_count` in the build info. | All | grep `rev-list --count` outside a version check | user 2026-10-15; decisions/2026-09-10 superseded |
 | E7 | Releases published in an older form are not renamed (consumers pin URLs). Consumers accept both forms and rank any date-label tag above an older one. | All | consumer tag parsers | VERSIONING.md; practice 2026-10-15 (llama.cpp `install.sh`) |
@@ -225,8 +225,8 @@ is called compliant only on exit 0 from an `--online` run.
 
 ```
 kinds: native wheel
-exception: C2 | faiss keeps build_output/ + _build/; convergence deferred until raft and cuvs comply | 2026-10-16
-attest: D1 | cuvs extracts into a directory named by the tag, read build.sh:79 | 2026-10-16 | <repo commit read>
+exception: C2 | faiss keeps build_output/ + _build/; convergence deferred until raft and cuvs comply | 2026-10-17
+attest: D1 | cuvs extracts into a directory named by the tag, read build.sh:79 | 2026-10-17 | <repo commit read>
 ```
 
 An `exception:` or `attest:` line without a reason or a date is itself a FAIL. An exception is
@@ -267,14 +267,21 @@ change its Check column to name the function.
 
 **Decision log** (who decided, when, why):
 
-- 2026-10-16, owner, after an independent (Opus) review of this document: (1) a same-date label collision
+- 2026-10-17, owner, after an independent (Opus) review of this document: (1) a same-date label collision
   fails the release gate and the maintainer repackages (E4); no auto-relabel, no reserving tag. (2) A check
   that cannot run is UNKNOWN and blocks "compliant" until run online or attested (section 6). (3) Applicability
   is per artifact kind (section 1). (4) C2 stays canonical with recorded exceptions for faiss and llama.cpp.
-- 2026-10-16, review corrections of fact, no policy change: A2's check no longer names the removed
+- 2026-10-17, review corrections of fact, no policy change: A2's check no longer names the removed
   `toolkits/DEFAULT`; I2 names the notes files as they exist; D1 states the property, not the marker file;
   A1 has no pin file (exceptions instead); the stale "omitted on wheel labels" text in `tuned-common.sh` and
   `upstream-vs-tuned-versions.json` now agrees with E1/E2.
+- 2026-10-17, owner, during the raft/cuvs/faiss compliance work: (5) H1/I3 stand as written: the release attaches a
+  `<tarball>.sha256` sidecar (the owner first chose to change H1 to "sha256 in package-info.txt", then reversed it
+  on seeing that the release carried no checksum asset at all); raft, cuvs and faiss now write and attach it.
+  (6) faiss's display-only `$(nproc)` was changed to `gpu_tuned_jobs`, not excepted (C5). (7) llama.cpp's
+  `LLAMA_TUNED_BUILD_NUMBER` commit count is to be removed from its flow (E6); NYI.
+- 2026-10-17, correction of my own record: the entries above and the C2/E4 rows were first dated 2026-10-16 in error
+  (the decisions were made on 2026-10-17); they now say 2026-10-17.
 - Review findings not yet acted on: raft, cuvs and faiss define `gpu_tuned_*` helpers locally in `env.sh`
   (`gpu_tuned_assert_cmake_cache_consistent`, `gpu_tuned_verify_cccl_toolkit_match`,
   `gpu_tuned_verify_pin_honored`), against Principle 1; the H5/I1/H6 sequence for committing the DRAFT
