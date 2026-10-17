@@ -706,6 +706,10 @@ ax="$(mktemp -d)"; mkdir -p "${ax}/s" "${ax}/sys"
     nvcc -shared -Xcompiler -fPIC -gencode arch=compute_80,code=compute_80 -Xlinker -soname,libdev.so -Xlinker -rpath,'$ORIGIN' dev.cu -o s/libdev.so -L s -l:libhost.so
     printf 'int sys_f(void){return 3;}\n' > sys.c
     gcc -shared -fPIC -Wl,-soname,libsysx.so.1 sys.c -o sys/libsysx.so.1
+    # a host-only wrapper bound to the device library: no device code of its own, but it NEEDs libdev
+    mkdir -p w; cp s/libdev.so s/libhost.so w/
+    printf 'extern int dev_f(void);\nint wrap_f(void){return dev_f();}\n' > wrap.c
+    gcc -shared -fPIC -Wl,-soname,libwrap.so wrap.c -o w/libwrap.so -L w -l:libdev.so -Wl,-rpath,'$ORIGIN' -Wl,--no-as-needed
 ) >"${ax}/log" 2>&1 || cat "${ax}/log"
 check "has_device_code: a library with a kernel is yes" 0 "-" "-" "${pre}; gpu_tuned_so_has_device_code '${ax}/s/libdev.so'"
 check "has_device_code: a host-only library is no" 1 "-" "-" "${pre}; set +e; gpu_tuned_so_has_device_code '${ax}/s/libhost.so'; exit \$?"
@@ -743,6 +747,17 @@ check "axes gate: an unrecorded extra library fails" 1 "VIOLATION: libsysx\.so\.
   "rm -rf '${ax}/n5'; cp -r '${ax}/s' '${ax}/n5'; cp '${ax}/sys/libsysx.so.1' '${ax}/n5/'; ${pre}; gpu_tuned_verify_so_axes '${ax}/n5' gb10 cu133 -"
 check "axes gate: a library that cannot be classified is a failure" 1 "cannot be classified" "-" \
   "${pre}; CUDA_HOME=/nonexistent PATH=/usr/bin:/bin gpu_tuned_verify_so_axes '${ax}/s' gb10 cu133 -"
+check "transitive: the wrapper has no device code" 1 "-" "-" "${pre}; set +e; gpu_tuned_so_has_device_code '${ax}/w/libwrap.so'; exit \$?"
+check "transitive manifest: a wrapper of a device library takes the variant, a host library does not" 0 "-" "^libwrap\.so -gb10-cu133$" \
+  "${pre}; gpu_tuned_axes_manifest '${ax}/w' gb10 cu133 '${ax}/w.manifest' libwrap.so libdev.so libhost.so && grep '^libwrap' '${ax}/w.manifest'"
+check "transitive manifest: ... and the host-only dependency stays toolkit-only" 0 "-" "^libhost\.so -cu133$" "grep '^libhost' '${ax}/w.manifest'"
+check "transitive manifest: the order of the names does not matter" 0 "-" "^libwrap\.so -gb10-cu133$" \
+  "${pre}; gpu_tuned_axes_manifest '${ax}/w' gb10 cu133 '${ax}/w2.manifest' libhost.so libwrap.so libdev.so && grep '^libwrap' '${ax}/w2.manifest'"
+check "transitive: rename by that manifest passes the axes gate" 0 "-" "^libwrap-gb10-cu133\.so$" \
+  "${pre}; gpu_tuned_rename_sonames '${ax}/w' '${ax}/w.manifest' >/dev/null && gpu_tuned_verify_so_axes '${ax}/w' gb10 cu133 - && ls '${ax}/w' | grep wrap"
+check "transitive: mark_for judges a renamed wrapper by its final NEEDED names" 0 "-" "^-gb10-cu133$" "${pre}; gpu_tuned_so_mark_for '${ax}/w/libwrap-gb10-cu133.so' gb10 cu133"
+check "transitive gate: a wrapper named toolkit-only fails" 1 "VIOLATION: libwrap-cu133\.so must end in '-gb10-cu133'" "-" \
+  "rm -rf '${ax}/n6'; cp -r '${ax}/w' '${ax}/n6'; mv '${ax}/n6/libwrap-gb10-cu133.so' '${ax}/n6/libwrap-cu133.so'; ${pre}; gpu_tuned_verify_so_axes '${ax}/n6' gb10 cu133 -"
 check "rename_package by axes: renames, repoints a CMake file, passes both gates" 0 "-" "libhost-cu133\.so" \
   "rm -rf '${ax}/pk'; mkdir -p '${ax}/pk/lib/cmake'; cp '${ax}/s/libhost-cu133.so' '${ax}/pk/lib/libhost.so'; patchelf --set-soname libhost.so '${ax}/pk/lib/libhost.so'; printf 'set(L \"lib/libhost.so\")\n' > '${ax}/pk/lib/cmake/t.cmake'; ${pre}; printf 'libhost.so -cu133\n' > '${ax}/pk.manifest'; gpu_tuned_rename_package '${ax}/pk/lib' '${ax}/pk.manifest' - '' '^(libc\.so|libm\.so|libstdc\+\+|libgcc_s)' '${ax}/pk/lib/cmake' >/dev/null 2>&1; cat '${ax}/pk/lib/cmake/t.cmake'"
 rm -rf "${ax}"
