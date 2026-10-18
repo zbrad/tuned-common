@@ -85,6 +85,45 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | C6 | Tuned builds never write to the repo's everyday dev build directory (the one local services may run). | N | path check | practice 2026-10-15 (llama.cpp `build/`) |
 | C7 | Pip-installed CMake packages (RAPIDS wheels, nvtx3) are kept out of native builds (`gpu_tuned_cmake_ignore_pip_prefixes`) and the configured cache is checked (`gpu_tuned_verify_no_pip_cmake_deps`). | N that build against RAPIDS | read `build.sh` | tuned-common commits 72430ce, c928ac7 |
 
+#### Layout today
+
+Surveyed with `ls` on 2026-10-18 (zspark-1); the 2026-10-12 decision is from commit `3cf4a64`. What is **tracked** is the tooling and the reviewed
+release notes; everything under a build tree is **generated** and gitignored.
+
+```
+<repo>/
+  tuned/                              TRACKED: the tooling, one flow for every repo
+    build.sh  full_test.sh  package.sh  smoke_test.sh  release.sh      stage scripts, each takes <variant>
+    env.sh  repo.env  compliance.conf                                  toolkit/device selection, repo settings, exceptions
+    common.sh  sync-common.sh  common.sh.sha  common-data/{devices,toolkits}/    vendored from tuned-common (A1, A2)
+    releases/RELEASE_NOTES_<label>-<variant>-<cuda>.md                 TRACKED, reviewed before a release (I2); drafts are untracked
+    <variant>/  (raft: gb10/ rtx40/ rtx50/)                            optional per-variant wrapper scripts; one set per variant
+    build/<cuda>/                     GENERATED, one tree per toolkit  (raft, cuvs; C2)
+      cmake/            the one fixed compile path, so ccache hits and ninja's log is kept
+      dist/             tarballs / wheels            dist-shared/  wheels shared by all variants (raft, a sibling of dist/)
+      releases/         generated release inputs: TEST_RESULTS_<variant>.log, SMOKE_RESULTS_<variant>.log, CHECKSUMS
+      ccache/           per toolkit (C4)             raft/<tag>/   (cuvs) the extracted raft release this build linked
+```
+
+| Axis that runs in parallel | raft, cuvs | faiss | llama.cpp | nccl |
+|---|---|---|---|---|
+| **Toolkit** (cu133 beside cu134) | yes: `tuned/build/<cuda>/` | yes: `<dir>/<cuda>/<variant>/` | yes: `build-tuned/<cuda>/<variant>/` | yes: `build/<cuda>/` |
+| **Variant** (gb10 beside rtx40) | **no**: `.variant` claim refuses a tree used by another variant | yes: `build_output/`, `_build/`, `_libfaiss_stage/`, `dist/` all have `<cuda>/<variant>/` | yes | **no**: `.variant` claim |
+| **Source state** (several commits at once) | no: one fixed tree | no | no | yes: `build/<cuda>/<describe>/{nccl,dist,releases}` per commit, plus a fixed `work/` so ccache hits |
+| **Branch** | one branch | one branch | one branch | **one branch per toolkit**: `tuned-builds-cu133`, `tuned-builds-cu134`, each based on the upstream release NVIDIA ships for that CUDA |
+
+Notes:
+- **The variant level was dropped for raft and cuvs on 2026-10-12** (they previously built into `cpp/build/<cuda>/<variant>` and `dist/<cuda>/<variant>`, so
+  several variants could sit side by side in one checkout). The commit gives the reason as one fixed compile path per toolkit so that ccache hits and
+  ninja's log is kept. Consequence: a second variant needs a separate checkout (or machine); `gpu_tuned_claim_toolkit_tree` refuses a mix-up rather than
+  silently mixing objects. This was not recorded in this document until now.
+- **faiss, llama.cpp and nccl deviate from C2** (their own roots and, for nccl, source-state-named trees); each records the reason in its
+  `tuned/compliance.conf`. Whether to converge is open (C2).
+- **Build trees accumulate**: nccl keeps one `<describe>/` tree per source state and does not clear old ones (several, some `-dirty`, were present on
+  2026-10-18). Clearing them is the maintainer's call; nothing here deletes them.
+- **Variant staging for wheels** (`wheel-src/` under the build tree, generated per variant and never edited in place) is described in
+  `~/.claude/design/variant-build-staging-pattern.md`.
+
 ### D. Dependencies on other tuned repos
 
 | ID | Requirement | Applies | Check | Source |
