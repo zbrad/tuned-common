@@ -1378,6 +1378,23 @@ PY
     echo "OK: ${fn}: ${base} installs and loads cleanly (${imp} ${modver}${cap:+, device ${cap}, cuda ${cuda_ver}})"
 }
 
+# gpu_tuned_require_pushed [repo-dir] -- fail unless HEAD is contained in a branch on origin (fetched first). A GitHub
+# release tags a commit on the remote: with an unpushed HEAD, `gh release create --target <branch>` silently tags the
+# remote branch's OLD tip, so the tag and the uploaded artifact name different sources (found 2026-10-18: a cu133
+# package built from an unpushed merge was published against the previous tip). rc 1 names the cause.
+gpu_tuned_require_pushed() {
+    local dir="${1:-.}" head contained
+    head="$(git -C "${dir}" rev-parse HEAD 2>/dev/null)" || { echo "ERROR: gpu_tuned_require_pushed: ${dir} is not a git checkout." >&2; return 1; }
+    git -C "${dir}" remote get-url origin >/dev/null 2>&1 || { echo "ERROR: gpu_tuned_require_pushed: ${dir} has no 'origin' remote." >&2; return 1; }
+    git -C "${dir}" fetch -q origin 2>/dev/null || { echo "ERROR: gpu_tuned_require_pushed: could not fetch origin to check that HEAD is pushed." >&2; return 1; }
+    contained="$(git -C "${dir}" branch -r --contains "${head}" 2>/dev/null | grep -v ' -> ' || true)"
+    if [[ -z "${contained}" ]]; then
+        echo "ERROR: gpu_tuned_require_pushed: HEAD ${head:0:9} is not on any origin branch; push it first (a release tags the commit it names)." >&2
+        return 1
+    fi
+    echo "OK: HEAD ${head:0:9} is on origin ($(echo "${contained}" | head -1 | tr -d ' '))"
+}
+
 # gpu_tuned_publish_release <owner/repo> <tag> <title> <notes-or-@notes-file>
 # [asset-spec ...] — publish a GitHub release via `gh release create`,
 # always targeting the "tuned-builds" branch (every consumer in this fleet
@@ -1402,6 +1419,7 @@ gpu_tuned_publish_release() {
     local repo="$1" tag="$2" title="$3" notes="$4"
     shift 4
     gpu_tuned_require_clean_tree || return 1
+    gpu_tuned_require_pushed || return 1
     gpu_tuned_check_release_tag "${tag}" || return 1
     local asset path
     for asset in "$@"; do
@@ -1421,7 +1439,7 @@ gpu_tuned_publish_release() {
     if ! gh release create "${tag}" \
         --repo "${repo}" \
         --title "${title}" \
-        --target "tuned-builds" \
+        --target "${GPU_TUNED_RELEASE_TARGET:-$(git rev-parse HEAD)}" \
         "${notes_args[@]}" \
         "$@"; then
         return 1

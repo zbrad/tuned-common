@@ -187,6 +187,7 @@ gate="$(mktemp -d)"
     set -e; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
     git init -q -b tuned-builds "${gate}/r"; cd "${gate}/r"
     echo 1 > tracked; git add tracked; git commit -qm c1
+    git init -q --bare -b tuned-builds "${gate}/origin.git"; git remote add origin "${gate}/origin.git"; git push -q origin tuned-builds
     mkdir "${gate}/bin"; printf '#!/bin/sh\necho gh-called "$@" >> "%s/gh.log"\n' "${gate}" > "${gate}/bin/gh"; chmod +x "${gate}/bin/gh"
 ) >/dev/null 2>&1
 ingate="cd '${gate}/r'; export PATH='${gate}/bin':\"\$PATH\"; : > '${gate}/gh.log'"
@@ -392,6 +393,17 @@ check "publish_release: a sha-form tag is refused before gh is called" 1 "carrie
   "${pre}; ${ingate}; rc=0; gpu_tuned_publish_release o/r v26.12-gb10-cu134-g0fa8a51f title notes 'a.tar.gz#a' || rc=\$?; [ ! -s '${gate}/gh.log' ] && exit \$rc"
 check "publish_release: a dirty tree is refused before gh is ever called" 1 "dirty tree" "-" \
   "${pre}; ${ingate}; echo 2 >> tracked; rc=0; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset || rc=\$?; git checkout -q tracked; [ ! -s '${gate}/gh.log' ] && exit \$rc"
+check "require_pushed: a pushed HEAD passes" 0 "-" "OK: HEAD [0-9a-f]{9} is on origin" "${pre}; ${ingate}; gpu_tuned_require_pushed"
+check "require_pushed: an unpushed commit is refused" 1 "not on any origin branch" "-" \
+  "${pre}; ${ingate}; echo u >> tracked; git commit -qam unpushed; rc=0; gpu_tuned_require_pushed || rc=\$?; git reset -q --hard HEAD~1; exit \$rc"
+check "require_pushed: no origin remote is refused" 1 "no 'origin' remote" "-" \
+  "${pre}; rm -rf '${gate}/noremote'; git init -q -b main '${gate}/noremote'; cd '${gate}/noremote'; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; gpu_tuned_require_pushed"
+check "publish_release: an unpushed commit is refused before gh is called" 1 "not on any origin branch" "-" \
+  "${pre}; ${ingate}; echo u >> tracked; git commit -qam unpushed; rc=0; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset || rc=\$?; git reset -q --hard HEAD~1; [ ! -s '${gate}/gh.log' ] && exit \$rc"
+check "publish_release: the release targets the pushed HEAD commit, not a branch name" 0 "-" "-" \
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset >/dev/null; grep -q -- \"--target \$(git rev-parse HEAD)\" '${gate}/gh.log'"
+check "publish_release: GPU_TUNED_RELEASE_TARGET overrides the target" 0 "-" "-" \
+  "${pre}; ${ingate}; GPU_TUNED_RELEASE_TARGET=somebranch gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset >/dev/null; grep -q -- '--target somebranch' '${gate}/gh.log'"
 check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r@v0.20261011.0-gb10-cu134" \
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset; grep -q 'release create v0.20261011.0-gb10-cu134' '${gate}/gh.log'"
 rm -rf "${gate}"
