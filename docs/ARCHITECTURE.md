@@ -78,7 +78,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
 | C1 | Each toolkit (and variant, where trees would otherwise mix) has its own build tree, tarball directory and test log. | N, W | the paths contain the cuda tag | `gpu_tuned_cuda_subdir` header |
-| C2 | The canonical tree is `tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` (`cmake/`, `dist/`, `releases/`, `ccache/`), with a variant claim (`gpu_tuned_claim_toolkit_tree`). A repo that cannot use it records why and its layout in its docs. **Exception (decided 2026-10-17):** faiss uses `build_output/` + `_build/` and llama.cpp `build-tuned/<cuda>/<variant>/`; both stay as recorded exceptions in their `tuned/compliance.conf` until convergence is taken up after raft and cuvs are compliant. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; deviations observed 2026-10-15 |
+| C2 | The canonical tree is `<repo>/tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` and **has no variant level** (`cmake/` objects, `dist/` tarballs and wheels, `releases/` test and smoke logs and checksums, `ccache/`, plus repo-specific siblings): a variant is built on its own machine or checkout, never beside another in the same storage, and `gpu_tuned_claim_toolkit_tree` refuses a mix-up. **Decided 2026-10-18; NYI** in faiss (`build_output/ _build/ _libfaiss_stage/ dist/` each with `<cuda>/<variant>/`), llama.cpp (`build-tuned/<cuda>/<variant>/`) and nccl (`build/<cuda>/<describe>/{nccl,dist,releases}` plus a fixed `work/`): each keeps a recorded exception in its `tuned/compliance.conf` until it moves. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; owner decision 2026-10-18 (variants do not share build storage) |
 | C3 | Before configuring, an existing CMake cache is checked against the toolkit's nvcc and the source tree; a mismatch fails and names the directory to remove. | N | read `build.sh` | practice (cuvs `env.sh`, llama.cpp `build.sh`) |
 | C4 | ccache is per toolkit (`CCACHE_DIR` inside the toolkit tree) with an explicit size. | N | grep `CCACHE_DIR` | practice (cuvs, llama.cpp) |
 | C5 | Default build parallelism is `gpu_tuned_jobs` (largest prime <= nproc-2); an environment override wins. | All | grep: no bare `$(nproc)` as a default | rollout 2026-10-15 |
@@ -117,8 +117,9 @@ Notes:
   several variants could sit side by side in one checkout). The commit gives the reason as one fixed compile path per toolkit so that ccache hits and
   ninja's log is kept. Consequence: a second variant needs a separate checkout (or machine); `gpu_tuned_claim_toolkit_tree` refuses a mix-up rather than
   silently mixing objects. This was not recorded in this document until now.
-- **faiss, llama.cpp and nccl deviate from C2** (their own roots and, for nccl, source-state-named trees); each records the reason in its
-  `tuned/compliance.conf`. Whether to converge is open (C2).
+- **faiss, llama.cpp and nccl deviate from C2** (their own roots, a variant level in faiss and llama.cpp, source-state-named trees in nccl); each
+  records the reason in its `tuned/compliance.conf`. **Decided 2026-10-18: they converge on the raft/cuvs shape** (`<cuda>/` only, no variant level;
+  see C2). Not yet done; the table above shows the layouts as they are today.
 - **Build trees accumulate**: nccl keeps one `<describe>/` tree per source state and does not clear old ones (several, some `-dirty`, were present on
   2026-10-18). Clearing them is the maintainer's call; nothing here deletes them.
 - **Variant staging for wheels** (`wheel-src/` under the build tree, generated per variant and never edited in place) is described in
@@ -349,5 +350,10 @@ change its Check column to name the function.
   library now prints exactly `NCCL version 2.32.3-gb10-cu134.20261018.0`; build, full_test and smoke_test require that exact line. NCCL's
   separate RAS status text ("compiled with CUDA 13.4") is left as upstream has it. It is a second fork patch in an upstream-tracked file,
   to be re-applied on each upstream update (the sync tool's marker check catches a loss).
+- 2026-10-18, owner: (13) no variant level in the build tree. Asked whether raft and cuvs should regain one (so variants could build side by
+  side), the owner decided against it: variants are unlikely to be built on the same hardware or build storage, so the layout is
+  `<build>/<cuda>/{ccache, objects, tars, ...}` only. raft and cuvs already have that shape and do not change; faiss and llama.cpp (variant
+  level) and nccl (per-commit `<describe>/` trees, which also accumulate) are to converge on it. This confirms the 2026-10-12 decision (`3cf4a64`),
+  now with its reason recorded. NYI for those three repos.
 - Review findings not yet acted on: the H5/I1/H6 sequence for committing the DRAFT
   notes is unspecified; ID order (G5, G6, G4; H6, H7, H8, H5) is not numeric.
