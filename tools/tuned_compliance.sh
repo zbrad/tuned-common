@@ -231,7 +231,7 @@ chk_H1() {
     [[ -z "${miss}" ]] && pass "package.sh writes package-info.txt and a .sha256 (the checks themselves are read by a person)" || fail "package.sh does not mention:${miss}"
 }
 chk_H7() {
-    local h; h="$(nc_grep 'gpu_tuned_embed_build_info_json|gpu_tuned_stamp_lib_json' "${OWN[@]}")"
+    local h; h="$(nc_grep 'gpu_tuned_embed_build_info_json|gpu_tuned_stamp_lib_json|gpu_tuned_write_build_info_json' "${OWN[@]}")"
     [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_stamp_lib_json / gpu_tuned_embed_build_info_json call (free-text stamp)"
 }
 chk_I1() {

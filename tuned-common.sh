@@ -948,14 +948,10 @@ gpu_tuned__git_info_fields() {
     fi
 }
 
-# gpu_tuned_embed_build_info_json <elf> [name[:type]=value]... -- stamps <elf> with the JSON object built from
-# the arguments plus the checkout's git fields and a UTC "built" time (arguments win over the automatic
-# fields). Replaces any earlier .tuned_build_info section, so it is idempotent. A caller-given field
-# `fork.url=` overrides the origin URL. Run it from inside the repo, like the older stamp.
-gpu_tuned_embed_build_info_json() {
-    local target="${1:-}" tmp json line auto=() given=() a name
-    shift || true
-    [ -f "${target}" ] || { echo "ERROR: gpu_tuned_embed_build_info_json: ${target:-<none>} is not a file." >&2; return 1; }
+# gpu_tuned__build_info_full [name[:type]=value]... -- (internal) prints the JSON object for the arguments plus the
+# checkout's git fields and a UTC "built" time (arguments win over the automatic fields). Run from inside the repo.
+gpu_tuned__build_info_full() {
+    local auto=() given=() a line name
     for a in "$@"; do given+=("${a}"); done
     while IFS= read -r line; do
         [ -n "${line}" ] || continue
@@ -963,12 +959,34 @@ gpu_tuned_embed_build_info_json() {
         for a in "${given[@]+"${given[@]}"}"; do [ "${a%%[:=]*}" = "${name}" ] && continue 2; done
         auto+=("${line}")
     done < <(gpu_tuned__git_info_fields)
-    json="$(gpu_tuned_build_info_json "${given[@]+"${given[@]}"}" "${auto[@]+"${auto[@]}"}" "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)")" || return 1
+    gpu_tuned_build_info_json "${given[@]+"${given[@]}"}" "${auto[@]+"${auto[@]}"}" "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+
+# gpu_tuned_embed_build_info_json <elf> [name[:type]=value]... -- stamps <elf> with the JSON object built from
+# the arguments plus the checkout's git fields and a UTC "built" time (arguments win over the automatic
+# fields). Replaces any earlier .tuned_build_info section, so it is idempotent. A caller-given field
+# `fork.url=` overrides the origin URL. Run it from inside the repo, like the older stamp.
+gpu_tuned_embed_build_info_json() {
+    local target="${1:-}" tmp json
+    shift || true
+    [ -f "${target}" ] || { echo "ERROR: gpu_tuned_embed_build_info_json: ${target:-<none>} is not a file." >&2; return 1; }
+    json="$(gpu_tuned__build_info_full "$@")" || return 1
     tmp="$(mktemp)"
     printf '%s\n' "${json}" > "${tmp}"
     objcopy --remove-section .tuned_build_info "${target}" 2>/dev/null || true
     objcopy --add-section .tuned_build_info="${tmp}" "${target}" || { rm -f "${tmp}"; return 1; }
     rm -f "${tmp}"
+}
+
+# gpu_tuned_write_build_info_json <out-file> [name[:type]=value]... -- the same JSON object as
+# gpu_tuned_embed_build_info_json, written to <out-file> (one line) for an artifact that is not an ELF and so cannot carry a
+# section: a static archive, a tree of files. Ship the file in the artifact as BUILD_INFO.json (docs/ARCHITECTURE.md H7).
+gpu_tuned_write_build_info_json() {
+    local out="${1:-}" json
+    shift || true
+    [ -n "${out}" ] || { echo "ERROR: gpu_tuned_write_build_info_json: need an output file." >&2; return 1; }
+    json="$(gpu_tuned__build_info_full "$@")" || return 1
+    printf '%s\n' "${json}" > "${out}"
 }
 
 # gpu_tuned_read_build_info <elf> -- prints the build info as one line of JSON. Reads .tuned_build_info when

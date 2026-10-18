@@ -91,6 +91,7 @@ run 'H1 the shared sidecar helper passes'    H1 PASS 'printf "%s\\n" "echo packa
 run 'H1 no sha256 sidecar fails'          H1 FAIL 'echo "echo package-info.txt" > tuned/package.sh'
 run 'H7 passes'                           H7 PASS 'true'
 run 'H7 the shared stamp helper passes'     H7 PASS "sed -i 's/gpu_tuned_embed_build_info_json/gpu_tuned_stamp_lib_json/' tuned/build.sh"
+run 'H7 the file writer for non-ELF artifacts passes' H7 PASS "sed -i 's/gpu_tuned_embed_build_info_json/gpu_tuned_write_build_info_json/' tuned/build.sh"
 run 'H7 free-text stamp fails'            H7 FAIL "sed -i '/gpu_tuned_embed_build_info_json/d' tuned/build.sh"
 run 'I1 passes'                           I1 PASS 'true'
 run 'I1 release.sh without DRAFT gate fails' I1 FAIL "sed -i 's/DRAFT//' tuned/release.sh"

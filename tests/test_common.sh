@@ -824,6 +824,13 @@ sl="$(mktemp -d)"
     objcopy --add-section .oldinfo_build_info=legacy.txt libf.so
 ) >/dev/null 2>&1
 senv="${pre}; export GPU_TUNED_VARIANT=gb10 GPU_TUNED_HW_LABEL=hw GPU_TUNED_CUDA_ARCH=121a CUDA_TAG=cu133 CUDA_VER=13.3 CUDA_HOME=/usr/local/cuda-13.3"
+wj="$(mktemp -d)"
+check "write_build_info_json: writes one line of JSON, release first, with the git fields and built" 0 "-" '^1 release=v0\.1-gb10-cu133 fork=1 built=1$' \
+  "${pre}; cd '${wj}'; git init -q -b main .; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; gpu_tuned_write_build_info_json '${wj}/BUILD_INFO.json' release=v0.1-gb10-cu133 package=demo; python3 -c 'import json; d=json.load(open(\"${wj}/BUILD_INFO.json\")); print(len(open(\"${wj}/BUILD_INFO.json\").read().strip().splitlines()), \"release=\"+d[\"release\"], \"fork=\"+str(int(\"commit\" in d[\"fork\"])), \"built=\"+str(int(\"built\" in d)))'"
+check "write_build_info_json: a caller-given field wins over the automatic one" 0 "-" '^https://example/x$' \
+  "${pre}; cd '${wj}'; gpu_tuned_write_build_info_json '${wj}/b2.json' package=demo release=v0.1-x-cu1 fork.url=https://example/x; python3 -c 'import json; print(json.load(open(\"${wj}/b2.json\"))[\"fork\"][\"url\"])'"
+check "write_build_info_json: no output file is an error" 1 "need an output file" "-" "${pre}; gpu_tuned_write_build_info_json"
+rm -rf "${wj}"
 check "stamp_lib_json: stamps and reads back the release first" 0 "-" '^"release": "v0\.20261017\.0-gb10-cu133"$' \
   "${senv}; gpu_tuned_stamp_lib_json '${sl}/libf.so' demo v0.20261017.0-gb10-cu133 .oldinfo_build_info deps.x=1 && gpu_tuned_read_build_info '${sl}/libf.so' | python3 -c 'import sys,json; d=json.load(sys.stdin); print(\"\\\"release\\\": \\\"\"+d[\"release\"]+\"\\\"\")'"
 check "stamp_lib_json: the legacy section is gone" 0 "-" "^0$" "readelf -S '${sl}/libf.so' | grep -c oldinfo_build_info || true"
