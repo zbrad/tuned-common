@@ -304,8 +304,11 @@ change its Check column to name the function.
   The label is therefore allocated at build time and recorded (E4); the suffix change cost 5 ccache misses of 335 units, not a full rebuild.
   Applies to nccl now; the other native repos' libraries carry the variant and toolkit in their file names (F1) and their
   JSON build info, not in a version string of their own.
-  NCCL itself appends `+cuda<major>.<minor>` after the suffix (upstream `src/init.cc`, also printed by NVIDIA's package); it repeats
-  the toolkit in another spelling and is deliberately left as upstream prints it (owner, 2026-10-18: this is specific to the tuned stack,
-  so the shape of the log line is not a concern; removing it would be a second fork patch in an upstream-tracked file).
+  NCCL itself appends `+cuda<major>.<minor>` after the suffix (upstream `src/init.cc`, also printed by NVIDIA's package); it repeated
+  the toolkit in another spelling, and the owner decided (2026-10-18, after first leaving it) to drop it: a one-line patch in
+  `src/init.cc` (marker `zbrad/nccl tuned-builds: version line`, in GPU_TUNED_FORK_MARKERS so a merge that loses it is refused). The
+  library now prints exactly `NCCL version 2.32.3-gb10-cu134.20261018.0`; build, full_test and smoke_test require that exact line. NCCL's
+  separate RAS status text ("compiled with CUDA 13.4") is left as upstream has it. It is a second fork patch in an upstream-tracked file,
+  to be re-applied on each upstream update (the sync tool's marker check catches a loss).
 - Review findings not yet acted on: the H5/I1/H6 sequence for committing the DRAFT
   notes is unspecified; ID order (G5, G6, G4; H6, H7, H8, H5) is not numeric.
