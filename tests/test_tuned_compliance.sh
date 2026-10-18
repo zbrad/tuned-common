@@ -110,6 +110,7 @@ run 'D1 is UNKNOWN until attested'        D1 UNKNOWN 'true'
 
 # exceptions, attestations and the config itself
 run 'exception turns a FAIL into EXCEPTION' B4 EXCEPTION 'echo "export CUDA_HOME=/usr/local/cuda" >> tuned/build.sh; echo "exception: B4 | fallback kept until toolkit loader lands | 2026-10-16" > tuned/compliance.conf'
+run 'exception on an unchecked (UNKNOWN) row shows as EXCEPTION' D1 EXCEPTION 'echo "exception: D1 | the pairing is kept elsewhere | 2026-10-18" > tuned/compliance.conf'
 run 'exception without a reason is a CONF failure' CONF FAIL 'echo "exception: B4 | | 2026-10-16" > tuned/compliance.conf'
 run 'exception without a date is a CONF failure' CONF FAIL 'echo "exception: B4 | because" > tuned/compliance.conf'
 run 'exception does not hide a PASS'      B4 PASS 'echo "exception: B4 | unused | 2026-10-16" > tuned/compliance.conf'

@@ -273,7 +273,7 @@ for entry in ${REG}; do
     if declare -F "chk_${id}" >/dev/null; then "chk_${id}"
     else unk "no mechanical check; a person reads it and attests (compliance.conf)"; fi
     # overrides: a recorded exception stands in for a FAIL; a valid attestation stands in for UNKNOWN
-    if [[ "${STATUS[${id}]}" == FAIL && -n "${EXC[${id}]:-}" ]]; then
+    if [[ ( "${STATUS[${id}]}" == FAIL || "${STATUS[${id}]}" == UNKNOWN ) && -n "${EXC[${id}]:-}" ]]; then
         emit EXCEPTION "${EXC[${id}]} -- was: ${EVID[${id}]}"
     elif [[ "${STATUS[${id}]}" == UNKNOWN && -n "${ATT[${id}]:-}" ]]; then
         a="${ATT[${id}]}"; c="${a##*|}"

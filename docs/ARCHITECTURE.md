@@ -217,7 +217,7 @@ the work. The report is regenerated, not edited by hand.
 **Tool.** `tools/tuned_compliance.sh <repo-path> [--online] [--kinds native,wheel]` prints the matrix
 (ID, status, evidence), the date, and the commits of the repo and of tuned-common. Statuses:
 PASS; FAIL; N/A (the requirement names a kind the repo does not ship); UNKNOWN (not looked at: the
-check needs the network, `gh`, a GPU or a person); EXCEPTION (a recorded, reasoned deviation);
+check needs the network, `gh`, a GPU or a person); EXCEPTION (a recorded, reasoned deviation; it stands in for a FAIL, or for an UNKNOWN row that has no mechanical check);
 ATTESTED (a person read it and said so). Without `--online` the checks that need `gh` or the network
 are UNKNOWN. Exit 0 only with no FAIL and no UNKNOWN; 1 with any FAIL; 2 with UNKNOWN only. A repo
 is called compliant only on exit 0 from an `--online` run.
