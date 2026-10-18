@@ -78,7 +78,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
 | C1 | Each toolkit (and variant, where trees would otherwise mix) has its own build tree, tarball directory and test log. | N, W | the paths contain the cuda tag | `gpu_tuned_cuda_subdir` header |
-| C2 | The canonical tree is `<repo>/tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` and **has no variant level** (`cmake/` objects, `dist/` tarballs and wheels, `releases/` test and smoke logs and checksums, `ccache/`, plus repo-specific siblings): a variant is built on its own machine or checkout, never beside another in the same storage, and `gpu_tuned_claim_toolkit_tree` refuses a mix-up. **Decided 2026-10-18; NYI** in faiss (`build_output/ _build/ _libfaiss_stage/ dist/` each with `<cuda>/<variant>/`), llama.cpp (`build-tuned/<cuda>/<variant>/`) and nccl (`build/<cuda>/<describe>/{nccl,dist,releases}` plus a fixed `work/`): each keeps a recorded exception in its `tuned/compliance.conf` until it moves. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; owner decision 2026-10-18 (variants do not share build storage) |
+| C2 | The canonical tree is `<repo>/tuned/build/<cuda-tag>/` from `gpu_tuned_out_dir` and **has no variant level** (`cmake/` objects, `dist/` tarballs and wheels, `releases/` test and smoke logs and checksums, `ccache/`, plus repo-specific siblings): a variant is built on its own machine or checkout, never beside another in the same storage, and `gpu_tuned_claim_toolkit_tree` refuses a mix-up. **Decided 2026-10-18.** Done in raft, cuvs and (2026-10-18) nccl, whose root is `build/<cuda>/` at the repo root (upstream gitignores `/build*`) rather than `tuned/build/<cuda>/`; **NYI** in faiss (`build_output/ _build/ _libfaiss_stage/ dist/` each with `<cuda>/<variant>/`), llama.cpp (`build-tuned/<cuda>/<variant>/`): each keeps a recorded exception in its `tuned/compliance.conf` until it moves. | N | path check; `docs` records any deviation | `gpu_tuned_out_dir` header; owner decision 2026-10-18 (variants do not share build storage) |
 | C3 | Before configuring, an existing CMake cache is checked against the toolkit's nvcc and the source tree; a mismatch fails and names the directory to remove. | N | read `build.sh` | practice (cuvs `env.sh`, llama.cpp `build.sh`) |
 | C4 | ccache is per toolkit (`CCACHE_DIR` inside the toolkit tree) with an explicit size. | N | grep `CCACHE_DIR` | practice (cuvs, llama.cpp) |
 | C5 | Default build parallelism is `gpu_tuned_jobs` (largest prime <= nproc-2); an environment override wins. | All | grep: no bare `$(nproc)` as a default | rollout 2026-10-15 |
@@ -109,7 +109,7 @@ release notes; everything under a build tree is **generated** and gitignored.
 |---|---|---|---|---|
 | **Toolkit** (cu133 beside cu134) | yes: `tuned/build/<cuda>/` | yes: `<dir>/<cuda>/<variant>/` | yes: `build-tuned/<cuda>/<variant>/` | yes: `build/<cuda>/` |
 | **Variant** (gb10 beside rtx40) | **no**: `.variant` claim refuses a tree used by another variant | yes: `build_output/`, `_build/`, `_libfaiss_stage/`, `dist/` all have `<cuda>/<variant>/` | yes | **no**: `.variant` claim |
-| **Source state** (several commits at once) | no: one fixed tree | no | no | yes: `build/<cuda>/<describe>/{nccl,dist,releases}` per commit, plus a fixed `work/` so ccache hits |
+| **Source state** (several commits at once) | no: one fixed tree | no | no | no (since 2026-10-18): one tree `build/<cuda>/{ccache,work,nccl,dist,releases}`; the source a build came from is recorded in `nccl/.params` and checked by `nccl_tuned_assert_build_current` |
 | **Branch** | one branch | one branch | one branch | **one branch per toolkit**: `tuned-builds-cu133`, `tuned-builds-cu134`, each based on the upstream release NVIDIA ships for that CUDA |
 
 Notes:
@@ -120,8 +120,10 @@ Notes:
 - **faiss, llama.cpp and nccl deviate from C2** (their own roots, a variant level in faiss and llama.cpp, source-state-named trees in nccl); each
   records the reason in its `tuned/compliance.conf`. **Decided 2026-10-18: they converge on the raft/cuvs shape** (`<cuda>/` only, no variant level;
   see C2). Not yet done; the table above shows the layouts as they are today.
-- **Build trees accumulate**: nccl keeps one `<describe>/` tree per source state and does not clear old ones (several, some `-dirty`, were present on
-  2026-10-18). Clearing them is the maintainer's call; nothing here deletes them.
+- **nccl used to keep one `<describe>/` tree per source state** (they accumulated, some `-dirty`) and no longer does: it moved to the flat
+  per-toolkit shape on 2026-10-18. Without the directory name to tell a stale build apart, the check is explicit: the build records its exact source in
+  `.params` and `full_test.sh` and `package.sh` refuse a build that is dirty or whose source outside `tuned/` differs from HEAD (H6). The old
+  trees are left on disk; clearing them is the maintainer's call.
 - **Variant staging for wheels** (`wheel-src/` under the build tree, generated per variant and never edited in place) is described in
   `~/.claude/design/variant-build-staging-pattern.md`.
 
