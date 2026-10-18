@@ -829,6 +829,11 @@ check "write_build_info_json: writes one line of JSON, release first, with the g
   "${pre}; cd '${wj}'; git init -q -b main .; git -c user.name=t -c user.email=t@t commit -q --allow-empty -m x; gpu_tuned_write_build_info_json '${wj}/BUILD_INFO.json' release=v0.1-gb10-cu133 package=demo; python3 -c 'import json; d=json.load(open(\"${wj}/BUILD_INFO.json\")); print(len(open(\"${wj}/BUILD_INFO.json\").read().strip().splitlines()), \"release=\"+d[\"release\"], \"fork=\"+str(int(\"commit\" in d[\"fork\"])), \"built=\"+str(int(\"built\" in d)))'"
 check "write_build_info_json: a caller-given field wins over the automatic one" 0 "-" '^https://example/x$' \
   "${pre}; cd '${wj}'; gpu_tuned_write_build_info_json '${wj}/b2.json' package=demo release=v0.1-x-cu1 fork.url=https://example/x; python3 -c 'import json; print(json.load(open(\"${wj}/b2.json\"))[\"fork\"][\"url\"])'"
+check "verify_build_info_json_file: matching fields pass" 0 "-" "-" \
+  "${pre}; printf '{\"release\":\"v0.1-x-cu1\",\"cuda\":{\"tag\":\"cu1\"}}\n' > '${wj}/vf.json'; gpu_tuned_verify_build_info_json_file '${wj}/vf.json' release=v0.1-x-cu1 cuda.tag=cu1"
+check "verify_build_info_json_file: a wrong field is named" 1 "field cuda.tag is 'cu1', expected 'cu2'" "-" \
+  "${pre}; gpu_tuned_verify_build_info_json_file '${wj}/vf.json' release=v0.1-x-cu1 cuda.tag=cu2"
+check "verify_build_info_json_file: a missing file is refused" 1 "missing or empty" "-" "${pre}; gpu_tuned_verify_build_info_json_file '${wj}/none.json'"
 check "write_build_info_json: no output file is an error" 1 "need an output file" "-" "${pre}; gpu_tuned_write_build_info_json"
 rm -rf "${wj}"
 check "stamp_lib_json: stamps and reads back the release first" 0 "-" '^"release": "v0\.20261017\.0-gb10-cu133"$' \

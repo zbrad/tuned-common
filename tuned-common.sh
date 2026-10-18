@@ -1036,7 +1036,23 @@ gpu_tuned_verify_build_info_json() {
     local file="${1:-}" json
     shift || true
     json="$(gpu_tuned_read_build_info "${file}")" || return 1
-    python3 - "${json}" "$@" <<'PY'
+    gpu_tuned__verify_json_fields "${json}" "$@"
+}
+
+# gpu_tuned_verify_build_info_json_file <json-file> [name[:type]=expected]... -- the same field check for a
+# BUILD_INFO.json written by gpu_tuned_write_build_info_json (an artifact that is not an ELF). Fails loudly naming the
+# field, the expected and the actual value; with no fields it only requires valid JSON.
+gpu_tuned_verify_build_info_json_file() {
+    local file="${1:-}" json
+    shift || true
+    [ -s "${file}" ] || { echo "ERROR: gpu_tuned_verify_build_info_json_file: ${file:-<none>} is missing or empty." >&2; return 1; }
+    json="$(cat "${file}")"
+    gpu_tuned__verify_json_fields "${json}" "$@"
+}
+
+# gpu_tuned__verify_json_fields <json-text> [name[:type]=expected]... -- (internal) shared by the two verifiers above.
+gpu_tuned__verify_json_fields() {
+    python3 - "$@" <<'PY'
 import json, re, sys
 try:
     obj = json.loads(sys.argv[1])
