@@ -294,5 +294,10 @@ change its Check column to name the function.
   also takes `-<variant>-<toolkit>` (so `libfaiss_c-gb10-cu133.so` stays, `libcuvs_c` becomes `libcuvs_c-gb10-cu133.so`),
   otherwise two variants' packages in one directory would collide on the wrapper's name while pointing at different libraries.
   Found by classifying the real libraries: `libcuvs_c` and `libfaiss_c` have no device code.
+- 2026-10-17, owner: (11) NCCL is pinned per toolkit in a per-toolkit directory and never taken from the system package
+  (`libnccl2` is one dpkg package and one file, resolved through the linker cache, so a flavour swap is silent; `apt` offered
+  the cuda13.4 flavour over the installed cuda13.3 one). Each toolkit file will pin a `zbrad/nccl` release instead of
+  `TOOLKIT_NCCL_VERSION` (A6, H8); NYI for cu133. Containers as the isolation mechanism are future work; for now paths and
+  venvs. Details, steps and the NCCL 2.30.7 vs 2.31.2 version question: `decisions/2026-10-17-toolkit-nccl-pinned-per-toolkit-not-system.md`.
 - Review findings not yet acted on: the H5/I1/H6 sequence for committing the DRAFT
   notes is unspecified; ID order (G5, G6, G4; H6, H7, H8, H5) is not numeric.
