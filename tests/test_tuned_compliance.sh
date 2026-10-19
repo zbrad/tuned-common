@@ -97,6 +97,7 @@ run 'H7 the file writer for non-ELF artifacts passes' H7 PASS "sed -i 's/gpu_tun
 run 'H7 free-text stamp fails'            H7 FAIL "sed -i '/gpu_tuned_embed_build_info_json/d' tuned/build.sh"
 run 'I1 passes'                           I1 PASS 'true'
 run 'I1 release.sh without DRAFT gate fails' I1 FAIL "sed -i 's/DRAFT//' tuned/release.sh"
+run 'I1 release.sh using the common gates passes' I1 PASS "echo 'gpu_tuned_release_gates tag=x' > tuned/release.sh"
 run 'I5 release and publish split passes'    I5 PASS 'true'
 run 'I5 release.sh publishing fails'        I5 FAIL 'printf "gpu_tuned_publish_release a b c d e\n" >> tuned/release.sh'
 run 'I5 release.sh creating a release fails' I5 FAIL 'printf "gh release create v1\n" >> tuned/release.sh'

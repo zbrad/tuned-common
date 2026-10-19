@@ -237,6 +237,10 @@ chk_H7() {
 chk_I1() {
     [[ -f "${T}/release.sh" ]] || { unk "no release.sh"; return; }
     local miss="" k
+    # the common gates (smoke log, package-info, DRAFT, notes committed, only-notes-changed) live in gpu_tuned_release_gates
+    if [[ -n "$(nc_grep 'gpu_tuned_release_gates' "${T}/release.sh")" ]]; then
+        pass "release.sh runs gpu_tuned_release_gates (smoke log, package-info, DRAFT and the other common gates)"; return
+    fi
     for k in 'SMOKE_RESULTS' 'package-info' 'DRAFT'; do [[ -n "$(nc_grep "${k}" "${T}/release.sh")" ]] || miss="${miss} ${k}"; done
     [[ -z "${miss}" ]] && pass "release.sh mentions the smoke log, package-info and the DRAFT gate (dry run is NYI here)" || fail "release.sh does not mention:${miss}"
 }
