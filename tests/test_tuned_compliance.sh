@@ -29,6 +29,7 @@ GOOD="${W}/good"; mkdir -p "${GOOD}/tuned/releases" "${GOOD}/tuned/common-data"
     echo 'gpu_tuned_embed_build_info_json x' >> tuned/build.sh
     printf '%s\n' 'echo package-info.txt' 'sha256sum t > t.sha256' > tuned/package.sh
     echo 'gpu_tuned_verify_resolves_in a b c' > tuned/smoke_test.sh
+    echo 'gpu_tuned_publish_ready "$marker"' > tuned/publish.sh
     printf '%s\n' 'echo "run bash tuned/package.sh first" >&2' 'grep SMOKE_RESULTS x; grep package-info y; grep DRAFT z' > tuned/release.sh
     echo "notes" > tuned/releases/RELEASE_NOTES_0.20261016.0-gb10-cu133.md
     git add -A; git commit -qm good
@@ -66,6 +67,7 @@ run 'A7 local gpu_tuned_ function fails'  A7 FAIL 'printf "gpu_tuned_my_helper()
 run 'A7 repo-prefixed helper passes'      A7 PASS 'printf "cuvs_my_helper() {\\n  :\\n}\\n" >> tuned/env.sh'
 run 'B1 passes'                           B1 PASS 'true'
 run 'B1 missing smoke_test.sh fails'      B1 FAIL 'rm tuned/smoke_test.sh'
+run 'B1 missing publish.sh fails'         B1 FAIL 'rm tuned/publish.sh'
 run 'B3 passes (message naming package.sh is not a call)' B3 PASS 'true'
 run 'B3 package.sh publishes fails'       B3 FAIL 'echo "gh release create v1" >> tuned/package.sh'
 run 'B3 release.sh packages fails'        B3 FAIL 'printf "  bash tuned/package.sh gb10\n" >> tuned/release.sh'
@@ -95,6 +97,11 @@ run 'H7 the file writer for non-ELF artifacts passes' H7 PASS "sed -i 's/gpu_tun
 run 'H7 free-text stamp fails'            H7 FAIL "sed -i '/gpu_tuned_embed_build_info_json/d' tuned/build.sh"
 run 'I1 passes'                           I1 PASS 'true'
 run 'I1 release.sh without DRAFT gate fails' I1 FAIL "sed -i 's/DRAFT//' tuned/release.sh"
+run 'I5 release and publish split passes'    I5 PASS 'true'
+run 'I5 release.sh publishing fails'        I5 FAIL 'printf "gpu_tuned_publish_release a b c d e\n" >> tuned/release.sh'
+run 'I5 release.sh creating a release fails' I5 FAIL 'printf "gh release create v1\n" >> tuned/release.sh'
+run 'I5 publish.sh without the marker call fails' I5 FAIL 'echo "echo hi" > tuned/publish.sh'
+run 'I5 missing publish.sh fails'           I5 FAIL 'rm tuned/publish.sh'
 run 'I2 passes'                           I2 PASS 'true'
 run 'I2 DRAFT notes fail'                 I2 FAIL 'echo DRAFT >> tuned/releases/RELEASE_NOTES_0.20261016.0-gb10-cu133.md'
 run 'I2 old-form notes only fail'         I2 FAIL 'git mv tuned/releases/RELEASE_NOTES_0.20261016.0-gb10-cu133.md tuned/releases/RELEASE_NOTES_26.12_gb10_cu133.md'

@@ -1130,5 +1130,56 @@ check "cccl_match: minor mismatch is fatal when strict" 1 "exact major.minor" "-
 check "cccl_match: no directory is skipped" 0 "no resolved directory" "-" "${pre}; gpu_tuned_verify_cccl_toolkit_match '' CCCL 13.3"
 rm -rf "${hc}"
 
+# --- release vs publish: gates, ready-marker, publish only from the marker ---
+rp="$(mktemp -d)"
+(
+    set -e; export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+    git init -q -b tuned-builds "${rp}/r"; cd "${rp}/r"
+    mkdir -p tuned/releases tuned/build/cu134/dist tuned/build/cu134/releases
+    echo src > src.c; git add src.c; git commit -qm c1
+    git init -q --bare -b tuned-builds "${rp}/origin.git"; git remote add origin "${rp}/origin.git"; git push -q origin tuned-builds
+    echo built > tuned/build/cu134/libx.so; sleep 1
+    echo "All binaries passed." > tuned/build/cu134/releases/TEST.log; sleep 1
+    echo tarball > tuned/build/cu134/dist/x-0.20261011.0-gb10-cu134.tar.gz
+    (cd tuned/build/cu134/dist && sha256sum x-0.20261011.0-gb10-cu134.tar.gz > x-0.20261011.0-gb10-cu134.tar.gz.sha256)
+    sha="$(sha256sum tuned/build/cu134/dist/x-0.20261011.0-gb10-cu134.tar.gz | awk '{print $1}')"
+    printf 'release_tag=v0.20261011.0-gb10-cu134\ncuda_tag=cu134\nvariant=gb10\nsha256=%s\n' "${sha}" > tuned/build/cu134/dist/package-info.txt
+    sleep 1; echo "=== Smoke test summary: passed ===" > tuned/build/cu134/releases/SMOKE.log
+    packaged="$(git rev-parse HEAD)"; echo "${packaged}" > "${rp}/packaged"
+    echo "# notes" > tuned/releases/RELEASE_NOTES_0.20261011.0-gb10-cu134.md; git add tuned/releases; git commit -qm notes; git push -q origin tuned-builds
+    mkdir "${rp}/bin"; printf '#!/bin/sh\necho gh-called "$@" >> "%s/gh.log"\n' "${rp}" > "${rp}/bin/gh"; chmod +x "${rp}/bin/gh"
+) >/dev/null 2>&1
+B=tuned/build/cu134
+inrp="cd '${rp}/r'; export PATH='${rp}/bin':\"\$PATH\"; : > '${rp}/gh.log'; PK=\$(cat '${rp}/packaged')"
+GATES="gpu_tuned_release_gates tag=v0.20261011.0-gb10-cu134 variant=gb10 cuda=cu134 info=${B}/dist/package-info.txt built=${B}/libx.so test_log=${B}/releases/TEST.log 'test_pass=All binaries passed' tarball=${B}/dist/x-0.20261011.0-gb10-cu134.tar.gz smoke_log=${B}/releases/SMOKE.log notes=tuned/releases/RELEASE_NOTES_0.20261011.0-gb10-cu134.md packaged=\$PK"
+check "release_gates: a fully valid layout passes every gate" 0 "-" "smoke test of this tarball passed" "${pre}; ${inrp}; ${GATES}"
+check "release_gates: a stale test log (build newer) fails" 1 "newer than" "-" "${pre}; ${inrp}; touch -r ${B}/libx.so ${rp}/ref; touch ${B}/libx.so; rc=0; ${GATES} || rc=\$?; touch -r ${rp}/ref ${B}/libx.so; exit \$rc"
+check "release_gates: a log without the pass phrase fails" 1 "does not show a clean pass" "-" "${pre}; ${inrp}; ${GATES/All binaries passed/NOPE}"
+check "release_gates: a missing smoke log fails" 1 "smoke log not found" "-" "${pre}; ${inrp}; ${GATES/SMOKE.log/none.log}"
+check "release_gates: a DRAFT banner in the notes fails" 1 "still a draft" "-" \
+  "${pre}; ${inrp}; f=tuned/releases/RELEASE_NOTES_0.20261011.0-gb10-cu134.md; cp \$f \$f.keep; echo '<!-- DRAFT — not yet published: x -->' >> \$f; rc=0; ${GATES} || rc=\$?; cp \$f.keep \$f; rm -f \$f.keep; exit \$rc"
+check "release_gates: a code change since the packaged commit fails" 1 "files other than tuned/releases/ changed" "-" \
+  "${pre}; ${inrp}; echo more >> src.c; git commit -qam later; git push -q origin tuned-builds; rc=0; ${GATES} || rc=\$?; git reset -q --hard HEAD~1; git push -q -f origin tuned-builds; exit \$rc"
+check "release_gates: an unknown key is an error" 2 "unknown key" "-" "${pre}; gpu_tuned_release_gates bogus=1"
+RM="${B}/releases/RELEASE_READY_gb10"
+ASSETS="${B}/dist/x-0.20261011.0-gb10-cu134.tar.gz#tarball ${B}/releases/TEST.log#tests"
+READY="gpu_tuned_release_ready ${RM} o/r v0.20261011.0-gb10-cu134 title tuned/releases/RELEASE_NOTES_0.20261011.0-gb10-cu134.md ${ASSETS}"
+check "release_ready: writes a marker and never calls gh" 0 "-" "nothing was published" \
+  "${pre}; ${inrp}; ${READY}; test -f ${RM}; [ ! -s '${rp}/gh.log' ]"
+check "publish_ready: no marker is refused before gh is called" 1 "no ready-marker" "-" \
+  "${pre}; ${inrp}; rm -f ${RM}; rc=0; gpu_tuned_publish_ready ${RM} || rc=\$?; [ ! -s '${rp}/gh.log' ] && exit \$rc"
+check "publish_ready: a marker with its assets intact publishes and is spent" 0 "-" "OK: published" \
+  "${pre}; ${inrp}; ${READY} >/dev/null; gpu_tuned_publish_ready ${RM}; grep -q 'release create v0.20261011.0-gb10-cu134' '${rp}/gh.log'; test -f ${RM}.published; test ! -f ${RM}"
+check "publish_ready: the same marker cannot publish twice" 1 "no ready-marker" "-" "${pre}; ${inrp}; gpu_tuned_publish_ready ${RM}"
+check "publish_ready: HEAD moved since the gates is refused" 1 "HEAD moved" "-" \
+  "${pre}; ${inrp}; ${READY} >/dev/null; echo n >> src.c; git commit -qam moved; git push -q origin tuned-builds; rc=0; gpu_tuned_publish_ready ${RM} || rc=\$?; git reset -q --hard HEAD~1; git push -q -f origin tuned-builds; [ ! -s '${rp}/gh.log' ] && exit \$rc"
+check "publish_ready: a changed asset is refused" 1 "changed or vanished" "-" \
+  "${pre}; ${inrp}; ${READY} >/dev/null; echo tampered >> ${B}/releases/TEST.log; rc=0; gpu_tuned_publish_ready ${RM} || rc=\$?; [ ! -s '${rp}/gh.log' ] && exit \$rc"
+check "publish_ready: changed notes are refused" 1 "notes changed" "-" \
+  "${pre}; ${inrp}; echo 'All binaries passed.' > ${B}/releases/TEST.log; ${READY} >/dev/null; f=tuned/releases/RELEASE_NOTES_0.20261011.0-gb10-cu134.md; cp \$f \$f.keep; echo x >> \$f; rc=0; gpu_tuned_publish_ready ${RM} || rc=\$?; cp \$f.keep \$f; rm -f \$f.keep; [ ! -s '${rp}/gh.log' ] && exit \$rc"
+check "release_marker_clear: removes a marker so a failing run leaves none" 0 "-" "-" \
+  "${pre}; ${inrp}; ${READY} >/dev/null; gpu_tuned_release_marker_clear ${RM}; test ! -f ${RM}"
+rm -rf "${rp}"
+
 echo; echo "passed=${PASS} failed=${FAIL} skipped=${SKIPPED}"
 [[ "${FAIL}" -eq 0 ]]

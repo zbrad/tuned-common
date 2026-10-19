@@ -175,8 +175,8 @@ chk_A7() {
 }
 chk_B1() {
     local s miss=""
-    for s in build full_test package smoke_test release; do [[ -f "${T}/${s}.sh" ]] || miss="${miss} ${s}.sh"; done
-    [[ -z "${miss}" ]] && pass "the five entry points exist (no-default-toolkit behaviour is B4/A3)" || fail "missing:${miss}"
+    for s in build full_test package smoke_test release publish; do [[ -f "${T}/${s}.sh" ]] || miss="${miss} ${s}.sh"; done
+    [[ -z "${miss}" ]] && pass "the six entry points exist (no-default-toolkit behaviour is B4/A3)" || fail "missing:${miss}"
 }
 chk_B2() {
     compgen -G "${T}/*wheel*.sh" >/dev/null && pass "wheel script(s): $(cd "${T}" && ls ./*wheel*.sh | tr '\n' ' ')(test/release stage order is read by a person)" \
@@ -245,6 +245,15 @@ chk_I2() {
     [[ -n "${notes}" ]] || { fail "no tracked RELEASE_NOTES_0.<date>.<seq>-<variant>-<cuda>.md"; return; }
     while read -r n; do grep -q 'DRAFT' "${REPO}/${n}" && bad="${bad} ${n##*/}"; done <<<"${notes}"
     [[ -z "${bad}" ]] && pass "$(echo "${notes}" | wc -l) tracked date-label notes, none DRAFT" || fail "tracked notes still DRAFT:${bad}"
+}
+chk_I5() {
+    [[ -f "${T}/release.sh" && -f "${T}/publish.sh" ]] || { fail "release.sh and publish.sh are both required (release gates, publish publishes)"; return; }
+    local r p
+    r="$(nc_grep 'gpu_tuned_publish_release|gpu_tuned_publish_ready|gh[[:space:]]+release[[:space:]]+create|git[[:space:]]+(tag|push)' "${T}/release.sh" | grep -vE 'echo|printf|>&2|^[^:]*:[0-9]+:[[:space:]]*#' || true)"
+    p="$(nc_grep 'gpu_tuned_publish_ready' "${T}/publish.sh" || true)"
+    if [[ -n "${r}" ]]; then fail "release.sh publishes or tags: $(echo "${r}" | first 2)"
+    elif [[ -z "${p}" ]]; then fail "publish.sh does not call gpu_tuned_publish_ready"
+    else pass "release.sh cannot publish; publish.sh publishes only from the ready-marker (gpu_tuned_publish_ready)"; fi
 }
 chk_J1() {
     local n; n="$(git -C "${REPO}" log -60 --format=%B -- tuned | grep -ciE '^co-authored-by:' || true)"

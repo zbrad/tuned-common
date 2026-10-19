@@ -68,9 +68,9 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
-| B1 | A native repo provides `tuned/build.sh`, `tuned/full_test.sh`, `tuned/package.sh`, `tuned/smoke_test.sh` and `tuned/release.sh`, each taking `<variant>` and selecting the toolkit by `CUDA_TAG`/`CUDA_VER`, never defaulted or guessed (with none named the loader fails and lists the defined toolkits; at a terminal it asks). | N | `ls`; run each with no args and read the usage | practice 2026-10-15 (raft, cuvs, faiss, llama.cpp) |
+| B1 | A native repo provides `tuned/build.sh`, `tuned/full_test.sh`, `tuned/package.sh`, `tuned/smoke_test.sh`, `tuned/release.sh` and `tuned/publish.sh`, each taking `<variant>` and selecting the toolkit by `CUDA_TAG`/`CUDA_VER`, never defaulted or guessed (with none named the loader fails and lists the defined toolkits; at a terminal it asks). | N | `ls`; run each with no args and read the usage | practice 2026-10-15 (raft, cuvs, faiss, llama.cpp) |
 | B2 | A wheel repo provides a wheel build script, a full test script and a release script with the same stage order and gates (E, G, I apply). | W | `ls` | practice; wheel scripts predate this, compliance unmeasured |
-| B3 | The order is build, test, package, smoke test, (review and commit notes), release. `release.sh` never builds, tests or packages; `package.sh` never tags, publishes or finalises notes. | N | read both scripts; `grep -n 'gh release\|git tag' package.sh` is empty | practice 2026-10-15; requested by the user 2026-10-15 ("split packaging and release") |
+| B3 | The order is build, test, package, smoke test, (review and commit notes), release, publish. `release.sh` never builds, tests or packages and never publishes; `package.sh` never tags, publishes or finalises notes. | N | read both scripts; `grep -n 'gh release\|git tag' package.sh` is empty | practice 2026-10-15; requested by the user 2026-10-15 ("split packaging and release") |
 | B4 | No stage selects a toolkit from `/usr/local/cuda`, from what is installed, or by a default; the toolkit is the one specified. | All | grep for `/usr/local/cuda\b` outside `toolkits/*.env` | README |
 
 ### C. Layout and isolation
@@ -93,7 +93,7 @@ release notes; everything under a build tree is **generated** and gitignored.
 ```
 <repo>/
   tuned/                              TRACKED: the tooling, one flow for every repo
-    build.sh  full_test.sh  package.sh  smoke_test.sh  release.sh      stage scripts, each takes <variant>
+    build.sh  full_test.sh  package.sh  smoke_test.sh  release.sh  publish.sh    stage scripts, each takes <variant>
     env.sh  repo.env  compliance.conf                                  toolkit/device selection, repo settings, exceptions
     common.sh  sync-common.sh  common.sh.sha  common-data/{devices,toolkits}/    vendored from tuned-common (A1, A2)
     releases/RELEASE_NOTES_<label>-<variant>-<cuda>.md                 TRACKED, reviewed before a release (I2); drafts are untracked
@@ -187,9 +187,9 @@ Notes:
 |---|---|---|---|---|
 | I1 | `release.sh` gates, all reported together: clean tree and `HEAD` pushed; passing test log newer than the build artifacts (compared against the build tree, not staged copies); tarball newer than the test log; a passing smoke log newer than the tarball; `package-info.txt` for this toolkit; only the tracked release notes changed since the packaged commit; notes not a DRAFT. | N | read, run a dry run | practice 2026-10-15; raft, cuvs, faiss, llama.cpp |
 | I2 | Release notes are a tracked file `tuned/releases/RELEASE_NOTES_<native tag without the leading v>.md` (`RELEASE_NOTES_0.20261015.0-gb10-cu133.md`), reviewed by the maintainer and committed before release; the DRAFT line is the gate. | N | file tracked | practice (raft, cuvs) |
-| I3 | Publishing goes through `gpu_tuned_publish_release`, attaching the tarball, its checksum, the notes, the test log and the smoke log. | N | read | tuned-common |
+| I3 | Publishing is `publish.sh` only, through `gpu_tuned_publish_ready` (which calls `gpu_tuned_publish_release`), attaching the tarball, its checksum, the notes, the test log and the smoke log. | N | read | tuned-common |
 | I4 | A superseded release that is defective (not merely old) is deleted with its tag; the pins table says so. | raft, cuvs | pins table | practice 2026-10-15 |
-| I5 | `release.sh` runs without publishing unless told (`--publish`) where the release has a second remote effect (a source tag). | N with a source tag (llama.cpp) | read | llama.cpp |
+| I5 | `release.sh` never publishes or tags: it runs the gates (`gpu_tuned_release_gates` plus any repo-specific ones) and, only if all pass, writes a ready-marker (`gpu_tuned_release_ready`); `publish.sh` publishes only from that marker and only while HEAD, the notes and every asset are unchanged (`gpu_tuned_publish_ready`), then marks it spent. | N | `tuned_compliance.sh` I5; `tests/test_common.sh` | user 2026-10-19 (three releases published by a `release.sh` run meant as a dry run) |
 
 ### J. Repository hygiene (global rules, listed so they are measured too)
 
