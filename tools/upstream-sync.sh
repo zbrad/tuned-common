@@ -43,6 +43,8 @@ set -euo pipefail
 TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../tuned-common.sh
 source "${TOOL_DIR}/../tuned-common.sh"
+# shellcheck source=agent_rule_paths.sh
+source "${TOOL_DIR}/agent_rule_paths.sh"
 
 CMD="plan"; REPO="."; BRANCH="tuned-builds"; DB="${GPU_TUNED_UPSTREAM_DEFAULT_BRANCH:-}"
 UP_REF="${GPU_TUNED_UPSTREAM_REF:-}"
@@ -262,6 +264,24 @@ do_plan() {
 
 count_marker() { git grep -I -F -c -e "$1" "${@:2}" -- . 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}'; }
 
+# A merge can bring upstream's agent rule files back to default-loaded paths (new files, or a
+# rename undone). git mv them to tuned/advisory_rules/ in a commit of their own (J5). Files
+# already under local_modified_rules/ are not touched; sorting a moved file into that home
+# is a person's call.
+relocate_agent_rules() {
+    local f n=0 dest
+    while read -r f; do
+        [[ -n "${f}" ]] || continue
+        dest="tuned/advisory_rules/${f}"
+        mkdir -p "$(dirname "${dest}")"; if git mv "${f}" "${dest}"; then n=$((n+1)); rmdir -p --ignore-fail-on-non-empty "$(dirname "${f}")" 2>/dev/null || true; else note "could not move ${f}"; fi
+    done < <(gpu_tuned_agent_rule_files "${TOP}")
+    [[ "${n}" -gt 0 ]] || { note "no agent rule files came back to default paths"; return 0; }
+    git commit -q -m "tuned: move ${n} agent rule file(s) the merge brought back to tuned/advisory_rules
+
+Assisted-by: Claude"
+    note "moved ${n} agent rule file(s) to tuned/advisory_rules (own commit, $(short HEAD))"
+}
+
 do_merge() {
     local pre backup n lost_markers m before after rev
     local rc=0
@@ -302,6 +322,7 @@ do_merge() {
     git commit -q -m "Merge upstream ${TARGET_LABEL#* } into ${BRANCH}"
     rev="$(git rev-parse --short=10 HEAD)"
     echo "== merged ${TARGET_LABEL} as ${rev}. Not pushed."
+    relocate_agent_rules
     echo "  stamp base would read: $(GPU_TUNED_UPSTREAM_REF="${TARGET_REF}" gpu_tuned_git_provenance | grep -o 'upstream .*')"
 }
 

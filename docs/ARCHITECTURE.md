@@ -196,9 +196,10 @@ Notes:
 | ID | Requirement | Applies | Check | Source |
 |---|---|---|---|---|
 | J1 | Commits carry `Assisted-by: Claude`, never `Co-Authored-By:`. | All | `git log` trailers | global CLAUDE.md |
-| J2 | Forks run no repo git hooks, have Actions disabled when public, and an upstream's agent rule files are never loaded. | forks | `gh api .../actions/permissions`; hook dispatcher | global CLAUDE.md |
+| J2 | Forks run no repo git hooks, and have Actions disabled when public (agent rule files: J5). | forks | `gh api .../actions/permissions`; hook dispatcher | global CLAUDE.md |
 | J3 | No real hostnames in public repos or release notes (`geo-<g>-node-<variant>-<n>`). | All | grep | global CLAUDE.md |
 | J4 | Docs describe the flow (`docs/.../release.md` or `tuned/README`) and are updated in the same slice as the scripts. | All | doc names the scripts that exist | practice |
+| J5 | A fork tracks no agent rule file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.claude/`, `.cursor/`, `.cursorrules`, `.windsurfrules`, `.github/copilot-instructions.md`, `.mcp.json`) at a default-loaded path. Upstream's unmodified copies are `git mv`ed to `tuned/advisory_rules/<same relative path>`, ones changed locally to `tuned/local_modified_rules/<same relative path>`; they are reference material and are named as upstream's when they inform work. `upstream-sync.sh merge` re-moves any a merge brings back. | forks | `tuned_compliance.sh` J5 (`git ls-files` outside the two homes) | user 2026-10-20 |
 
 ### Build info
 

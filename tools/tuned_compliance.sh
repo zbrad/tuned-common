@@ -19,6 +19,8 @@ TOOL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TC_DIR="$(cd "${TOOL_DIR}/.." && pwd)"
 # shellcheck source=../tuned-common.sh
 source "${TC_DIR}/tuned-common.sh"
+# shellcheck source=agent_rule_paths.sh
+source "${TOOL_DIR}/agent_rule_paths.sh"
 
 REPO=""; ONLINE=0; KINDS_ARG=""
 while [[ $# -gt 0 ]]; do
@@ -267,13 +269,18 @@ chk_J3() {
     local h; h="$(git -C "${REPO}" grep -nE 'zspark-[0-9]+|zbrad-(duo|ven[0-9]*)' -- tuned docs 2>/dev/null || true)"
     [[ -z "${h}" ]] && pass "no real hostnames in tuned/ or docs/" || fail "$(echo "${h}" | wc -l) hit(s): $(echo "${h}" | first 2)"
 }
+chk_J5() {
+    if ! git -C "${REPO}" remote get-url upstream >/dev/null 2>&1; then emit N/A "no upstream remote: not a fork"; return; fi
+    local f; f="$(gpu_tuned_agent_rule_files "${REPO}")"
+    [[ -z "${f}" ]] && pass "no agent rule file at a default-loaded path" || fail "$(echo "${f}" | wc -l) tracked at default paths: $(echo "${f}" | head -n 3 | tr '\n' ';' | sed 's/;$//')"
+}
 
 # ---- the requirement register: ID | kinds it applies to (any, native, wheel) ---------------------
 REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any B1:native B2:wheel B3:native B4:any
 C1:any C2:native C3:native C4:native C5:any C6:native C7:native D1:native D2:native D3:native
 E1:wheel E2:native E3:any E4:any E5:any E6:any E7:any E8:any F1:native F2:native F3:native F4:wheel
 G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native
-I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any"
+I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any J5:any"
 
 applies() {  # applies <kind-needed>
     case "$1" in any) [[ -n "${KINDS}" ]] ;; *) has_kind "$1" ;; esac

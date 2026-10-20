@@ -11,7 +11,7 @@ W="$(mktemp -d)"; trap 'rm -rf "${W}"' EXIT
 # A private copy of tuned-common (working tree, committed) so the tool's reference commit is exactly this tree.
 TC="${W}/tc"; mkdir -p "${TC}/tools"
 cp -r "${SRC}/tuned-common.sh" "${SRC}/sync-common.sh" "${SRC}/toolkits" "${SRC}/devices" "${TC}/"
-cp "${SRC}/tools/tuned_compliance.sh" "${TC}/tools/"
+cp "${SRC}/tools/tuned_compliance.sh" "${SRC}/tools/agent_rule_paths.sh" "${TC}/tools/"
 ( cd "${TC}" && git init -q -b main && git add -A && git commit -qm base ) || { echo "fixture failed"; exit 1; }
 TOOL="${TC}/tools/tuned_compliance.sh"
 export GPU_TUNED_COMPLIANCE_REF=HEAD
@@ -112,6 +112,11 @@ run 'J1 Co-Authored-By trailer fails'     J1 FAIL 'echo x > tuned/x.txt; git add
 Co-Authored-By: Someone <s@s>"'
 run 'J3 passes'                           J3 PASS 'true'
 run 'J3 real hostname fails'              J3 FAIL 'echo "ssh zspark-1" > tuned/note.txt'
+run 'J5 not a fork is N/A'                J5 N/A 'echo x > CLAUDE.md'
+run 'J5 fork without agent files passes'    J5 PASS 'git remote add upstream https://github.com/u/r.git'
+run 'J5 fork with CLAUDE.md fails'          J5 FAIL 'git remote add upstream https://github.com/u/r.git; echo x > CLAUDE.md'
+run 'J5 fork with nested .claude fails'     J5 FAIL 'git remote add upstream https://github.com/u/r.git; mkdir -p sub/.claude; echo x > sub/.claude/settings.json; git add -f sub/.claude/settings.json'
+run 'J5 fork with files moved to advisory_rules passes' J5 PASS 'git remote add upstream https://github.com/u/r.git; mkdir -p tuned/advisory_rules tuned/local_modified_rules/.claude; echo x > tuned/advisory_rules/CLAUDE.md; echo x > tuned/local_modified_rules/.claude/a.json'
 run 'kinds: wheel check N/A on native'    B2 N/A 'true'
 run 'kinds: wheel script makes B2 apply'  B2 PASS 'echo "# w" > tuned/wheel.sh'
 run 'D1 is UNKNOWN until attested'        D1 UNKNOWN 'true'
