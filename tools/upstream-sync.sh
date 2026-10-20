@@ -265,21 +265,21 @@ do_plan() {
 count_marker() { git grep -I -F -c -e "$1" "${@:2}" -- . 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}'; }
 
 # A merge can bring upstream's agent rule files back to default-loaded paths (new files, or a
-# rename undone). git mv them to tuned/advisory_rules/ in a commit of their own (J5). Files
-# already under local_modified_rules/ are not touched; sorting a moved file into that home
+# rename undone). git mv them to rules_advisory/ in a commit of their own (J5). Files
+# already under rules_local/ are not touched; sorting a moved file into that home
 # is a person's call.
 relocate_agent_rules() {
     local f n=0 dest
     while read -r f; do
         [[ -n "${f}" ]] || continue
-        dest="tuned/advisory_rules/${f}"
+        dest="rules_advisory/${f}"
         mkdir -p "$(dirname "${dest}")"; if git mv "${f}" "${dest}"; then n=$((n+1)); rmdir -p --ignore-fail-on-non-empty "$(dirname "${f}")" 2>/dev/null || true; else note "could not move ${f}"; fi
     done < <(gpu_tuned_agent_rule_files "${TOP}")
     [[ "${n}" -gt 0 ]] || { note "no agent rule files came back to default paths"; return 0; }
-    git commit -q -m "tuned: move ${n} agent rule file(s) the merge brought back to tuned/advisory_rules
+    git commit -q -m "move ${n} agent rule file(s) the merge brought back to rules_advisory
 
 Assisted-by: Claude"
-    note "moved ${n} agent rule file(s) to tuned/advisory_rules (own commit, $(short HEAD))"
+    note "moved ${n} agent rule file(s) to rules_advisory (own commit, $(short HEAD))"
 }
 
 do_merge() {

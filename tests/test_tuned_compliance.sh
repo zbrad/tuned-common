@@ -117,7 +117,7 @@ run 'J5 fork without agent files passes'    J5 PASS 'git remote add upstream htt
 run 'J5 fork with CLAUDE.md fails'          J5 FAIL 'git remote add upstream https://github.com/u/r.git; echo x > CLAUDE.md'
 run 'J5 fork with nested .claude fails'     J5 FAIL 'git remote add upstream https://github.com/u/r.git; mkdir -p sub/.claude; echo x > sub/.claude/settings.json; git add -f sub/.claude/settings.json'
 run 'J5 fork with .agents fails'            J5 FAIL 'git remote add upstream https://github.com/u/r.git; mkdir -p .agents/skills/a; echo x > .agents/skills/a/SKILL.md'
-run 'J5 fork with files moved to advisory_rules passes' J5 PASS 'git remote add upstream https://github.com/u/r.git; mkdir -p tuned/advisory_rules tuned/local_modified_rules/.claude; echo x > tuned/advisory_rules/CLAUDE.md; echo x > tuned/local_modified_rules/.claude/a.json'
+run 'J5 fork with files moved to rules_advisory passes' J5 PASS 'git remote add upstream https://github.com/u/r.git; mkdir -p rules_advisory rules_local/.claude; echo x > rules_advisory/CLAUDE.md; echo x > rules_local/.claude/a.json'
 run 'kinds: wheel check N/A on native'    B2 N/A 'true'
 run 'kinds: wheel script makes B2 apply'  B2 PASS 'echo "# w" > tuned/wheel.sh'
 run 'D1 is UNKNOWN until attested'        D1 UNKNOWN 'true'
