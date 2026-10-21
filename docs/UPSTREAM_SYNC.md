@@ -98,20 +98,34 @@ is a hard dependency: `merge --apply` exits 2 before changing anything if `DOTFI
 or the script is missing. It then prints the stamp base, which reads
 `nearest <tag>+0` because the upstream ref is now the tag itself. It never pushes.
 
-### Default branch of a quarantined fork (decided 2026-10-21)
+### Branches of a quarantined fork (decided 2026-10-21)
 
-A fork's published default branch must not ship upstream's agent rule files, so it carries a
-quarantine commit and is no longer a pure mirror. Sync it the way `tuned-builds` is synced:
+A fork's published default must not ship upstream's agent rule files, so it cannot be a mirror.
+Three branches, with fixed names across all forks:
+
+| Branch | What it is | Moved by |
+|---|---|---|
+| `upstream_mirror` | pure copy of upstream's default branch, rule files included; never checked out for work | `sync-default` (`gh repo sync --branch upstream_mirror`, fast-forward only, never `--force`; GitHub's sync takes upstream's default whatever the branch is called, see the experiment below) |
+| `current` | the fork's **public default**: merge-forward of `upstream_mirror` plus the quarantine commit and the README notice. Never rebuilt or force-pushed. `main`/`master` are retired in forks. | `merge --branch current --pin upstream_mirror --apply`, or `quarantine --branch current --apply` when it already contains upstream |
+| `tuned-builds` | our build changes, merged from upstream tags | `merge` |
 
 ```bash
-$T merge --repo ~/gh/<repo> --branch <default> --pin upstream/<default> --apply   # merge, then quarantine
-# push <default> to origin with approval; gh repo sync would refuse (the fork has its own commits)
+$T sync-default --repo ~/gh/<repo>                                     # refresh upstream_mirror
+$T merge --repo ~/gh/<repo> --branch current --pin upstream_mirror --apply   # merge forward, quarantine, notice
+# push current with approval
 ```
 
-`sync-default` refuses such a branch (exit 4) and says so. After the quarantine, `merge --apply`
-puts a fork notice at the top of `README.md` (marker `<!-- fork-notice -->`, own commit,
-added once); a repo without `README.md` is told to add it by hand. If upstream edits the README's
-first lines the merge conflicts there: keep both and re-run to restore the notice.
+`sync-default` refuses a mirror branch that carries a quarantine commit (exit 4). After a
+quarantine, `merge --apply` and `quarantine --apply` put a fork notice at the top of
+`README.md` (marker `<!-- fork-notice -->`, own commit, added once); a repo without
+`README.md` is told to add it by hand. If upstream edits the README's first lines the merge
+conflicts there: keep both and re-run to restore the notice. `current` needs branch protection
+(see the experiment), and nobody uses GitHub's web Sync fork on it.
+
+Migration per fork (not yet done anywhere; each remote step needs approval): create
+`upstream_mirror` at the mirror's commit, create `current` from it, quarantine, push, set
+`current` as the default and protect it, then delete `main`/`master` (a clone's old default
+needs `git remote set-head origin -a`).
 
 #### Experiment: renaming the default branch does not stop GitHub's sync (2026-10-21)
 

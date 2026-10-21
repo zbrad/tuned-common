@@ -10,6 +10,7 @@
 set -uo pipefail
 TOOL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/tools/upstream-sync.sh"
 PASS=0; FAIL=0
+export GPU_TUNED_MIRROR_BRANCH=main   # the fixtures predate the upstream_mirror default
 export DOTFILES_DIR="${DOTFILES_DIR:-$HOME/gh/dotfiles}"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
@@ -271,6 +272,23 @@ check "J5: a second merge leaves the existing notice alone" 0 "dispatch:" "fork 
 newfork j5 v1.2.0
 check "sync-default: a default branch carrying a quarantine commit is refused with a pointer to merge" 4 "carries a quarantine commit" "-" \
   "cd '${W}/j5'; git branch -q qd main; git checkout -q qd; mkdir rules_local; echo x > rules_local/a; git add rules_local; git commit -qm q; git branch -q -f main qd; git checkout -q tuned-builds; ${SYNC} sync-default --default-branch main --no-remote"
+
+newfork q1 v1.2.0
+( cd "${W}/q1" && printf '# Proj\n' > README.md && echo mine > CLAUDE.md && git add README.md CLAUDE.md && git commit -qm "add rule file and readme" ) >/dev/null 2>&1
+check "quarantine: dry run prints the plan and changes nothing" 0 "-" "rules_local/CLAUDE.md" \
+  "cd '${W}/q1'; before=\$(git rev-parse HEAD); ${SYNC} quarantine --default-branch main; [ \"\$before\" = \"\$(git rev-parse HEAD)\" ] && [ -f CLAUDE.md ]"
+check "quarantine --apply: moves the file and adds the notice, two commits, tree clean, no merge" 0 "dispatch:" "added the fork notice" \
+  "cd '${W}/q1'; ${SYNC} quarantine --default-branch main --apply && [ ! -e CLAUDE.md ] && [ -f rules_local/CLAUDE.md ] && [ \"\$(sed -n 1p README.md)\" = '<!-- fork-notice -->' ] && [ -z \"\$(git status --porcelain)\" ] && [ \"\$(git rev-list --merges --count HEAD~2..HEAD)\" = 0 ]"
+check "quarantine --apply: again is a no-op" 0 "-" "fork notice already" \
+  "cd '${W}/q1'; h=\$(git rev-parse HEAD); ${SYNC} quarantine --default-branch main --apply; [ \"\$h\" = \"\$(git rev-parse HEAD)\" ]"
+newfork q2 v1.2.0
+git -C "${W}/q2" branch -q upstream_mirror "${M3}"
+check "sync-default: the mirror branch defaults to upstream_mirror and follows upstream" 0 "-" "local upstream_mirror .* is now $(short10 "${W}/q2" "${M5}")|is now" \
+  "cd '${W}/q2'; unset GPU_TUNED_MIRROR_BRANCH; ${SYNC} sync-default --default-branch main --no-remote; [ \"\$(git rev-parse upstream_mirror)\" = \"\$(git rev-parse upstream/main)\" ]"
+newfork q3 v1.2.0
+git -C "${W}/q3" branch -q upstream_mirror "${M3}"
+check "sync-default: a quarantine commit on upstream_mirror is refused (the mirror must stay pure)" 4 "carries a quarantine commit" "-" \
+  "cd '${W}/q3'; unset GPU_TUNED_MIRROR_BRANCH; git checkout -q upstream_mirror; mkdir rules_local; echo x > rules_local/a; git add rules_local; git commit -qm q; git checkout -q tuned-builds; ${SYNC} sync-default --default-branch main --no-remote"
 
 newfork j3 v1.2.0
 check "J5: merge --apply without the dotfiles script refuses before merging" 2 "DOTFILES_DIR is not set" "-" \

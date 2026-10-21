@@ -12,12 +12,19 @@
 #                 locally, changing nothing; (2) gh repo sync <fork> --branch <default>
 #                 (server-side, fast-forward only, never --force); (3) fetch origin and
 #                 fast-forward the local default branch from it. Local follows the mirror.
+#   quarantine    on the checked-out --branch: move the agent rule files (dotfiles'
+#                 quarantine-instructions.sh) and add the README fork notice, no merge. Dry
+#                 run unless --apply. For the first quarantine of a branch that already
+#                 contains upstream.
 #   merge         merge a named upstream tag (--tag) or an upstream-main commit (--pin)
 #                 into the tuned branch. Dry run unless --apply.
 #
 # Options:
 #   --repo DIR              repo to act on (default: current directory)
 #   --branch NAME           the tuned branch (default tuned-builds); never switched to
+#   --mirror-branch NAME    the fork's pure mirror of upstream's default branch (default
+#                           upstream_mirror; env GPU_TUNED_MIRROR_BRANCH). sync-default syncs this
+#                           one; the fork's public default is 'current' (merge-forward + quarantine).
 #   --default-branch NAME   upstream's default branch (default: upstream/HEAD, else asked
 #                           of the upstream remote and said so)
 #   --upstream-ref REF      what "upstream" means for gates and the stamp
@@ -46,7 +53,7 @@ source "${TOOL_DIR}/../tuned-common.sh"
 # shellcheck source=agent_rule_paths.sh
 source "${TOOL_DIR}/agent_rule_paths.sh"
 
-CMD="plan"; REPO="."; BRANCH="tuned-builds"; DB="${GPU_TUNED_UPSTREAM_DEFAULT_BRANCH:-}"
+CMD="plan"; REPO="."; BRANCH="tuned-builds"; MIRROR="${GPU_TUNED_MIRROR_BRANCH:-upstream_mirror}"; DB="${GPU_TUNED_UPSTREAM_DEFAULT_BRANCH:-}"
 UP_REF="${GPU_TUNED_UPSTREAM_REF:-}"
 TAG_RE="${GPU_TUNED_UPSTREAM_TAG_RE:-^v[0-9]+\.[0-9]+\.[0-9]+\$}"
 TAG_GLOB="${GPU_TUNED_UPSTREAM_TAG_GLOB:-v*}"
@@ -61,7 +68,7 @@ gate() { echo "  GATE FAIL: $*" >&2; FAILED=1; }
 usage() { sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 case "${1:-}" in
-    plan|sync-default|merge) CMD="$1"; shift ;;
+    plan|sync-default|merge|quarantine) CMD="$1"; shift ;;
     -h|--help) usage; exit 0 ;;
 esac
 while [[ $# -gt 0 ]]; do
@@ -69,6 +76,7 @@ while [[ $# -gt 0 ]]; do
         --repo) REPO="$2"; shift 2 ;;
         --branch) BRANCH="$2"; shift 2 ;;
         --default-branch) DB="$2"; shift 2 ;;
+        --mirror-branch) MIRROR="$2"; shift 2 ;;
         --upstream-ref) UP_REF="$2"; shift 2 ;;
         --tag-re) TAG_RE="$2"; shift 2 ;;
         --tag-glob) TAG_GLOB="$2"; shift 2 ;;
@@ -109,15 +117,15 @@ fetch_upstream() {
 }
 
 report_mirror() {
-    echo "== default-branch mirror (${DB})"
+    echo "== default-branch mirror (${MIRROR})"
     local u l o
-    u="$(short "refs/remotes/upstream/${DB}")"; l="$(short "refs/heads/${DB}")"; o="$(short "refs/remotes/origin/${DB}")"
+    u="$(short "refs/remotes/upstream/${DB}")"; l="$(short "refs/heads/${MIRROR}")"; o="$(short "refs/remotes/origin/${MIRROR}")"
     note "upstream/${DB}  ${u}"
-    note "local ${DB}      ${l}   (vs upstream: $(rel "refs/heads/${DB}" "refs/remotes/upstream/${DB}") [local-only upstream-only])"
-    note "origin/${DB}    ${o}   (vs local:    $(rel "refs/remotes/origin/${DB}" "refs/heads/${DB}") [origin-only local-only])"
-    if git rev-parse -q --verify "refs/remotes/origin/${DB}" >/dev/null &&
-       ! git merge-base --is-ancestor "refs/remotes/origin/${DB}" "refs/remotes/upstream/${DB}" 2>/dev/null; then
-        note "WARNING: origin/${DB} has commits upstream/${DB} lacks; the fork's mirror is meant to be pure"
+    note "local ${MIRROR}      ${l}   (vs upstream: $(rel "refs/heads/${MIRROR}" "refs/remotes/upstream/${DB}") [local-only upstream-only])"
+    note "origin/${MIRROR}    ${o}   (vs local:    $(rel "refs/remotes/origin/${MIRROR}" "refs/heads/${MIRROR}") [origin-only local-only])"
+    if git rev-parse -q --verify "refs/remotes/origin/${MIRROR}" >/dev/null &&
+       ! git merge-base --is-ancestor "refs/remotes/origin/${MIRROR}" "refs/remotes/upstream/${DB}" 2>/dev/null; then
+        note "WARNING: origin/${MIRROR} has commits upstream/${DB} lacks; the fork's mirror is meant to be pure"
     fi
 }
 
@@ -350,26 +358,26 @@ do_sync_default() {
 
     echo "== 1. checks (nothing is changed until all pass)"
     local ref
-    for ref in "refs/heads/${DB}" "refs/remotes/origin/${DB}"; do
+    for ref in "refs/heads/${MIRROR}" "refs/remotes/origin/${MIRROR}"; do
         if git ls-tree --name-only "${ref}" 2>/dev/null | grep -qxE 'rules_advisory|rules_local'; then
-            RC=4 die "${ref#refs/*/} carries a quarantine commit (rules_advisory/ or rules_local/), so it is not a mirror and sync-default does not apply. Use: merge --branch ${DB} --pin upstream/${DB} --apply (then push with approval). Nothing changed."
+            RC=4 die "${ref#refs/*/} carries a quarantine commit (rules_advisory/ or rules_local/), so it is not a mirror and sync-default does not apply. Use: merge --branch ${MIRROR} --pin upstream/${DB} --apply (then push with approval). Nothing changed."
         fi
     done
-    if git rev-parse -q --verify "refs/heads/${DB}" >/dev/null; then
+    if git rev-parse -q --verify "refs/heads/${MIRROR}" >/dev/null; then
         local_ok=1
         # local may only be behind the mirror, never ahead of it or diverged
-        if ! git merge-base --is-ancestor "refs/heads/${DB}" "refs/remotes/upstream/${DB}"; then
-            RC=4 die "local ${DB} has commits upstream/${DB} lacks (not a fast-forward); the mirror must stay pure. Nothing changed."
+        if ! git merge-base --is-ancestor "refs/heads/${MIRROR}" "refs/remotes/upstream/${DB}"; then
+            RC=4 die "local ${MIRROR} has commits upstream/${DB} lacks (not a fast-forward); the mirror must stay pure. Nothing changed."
         fi
         if [[ "$(git symbolic-ref -q --short HEAD 2>/dev/null || true)" == "${DB}" ]]; then
-            RC=2 die "${DB} is checked out here; the tool will not move the checked-out branch. Nothing changed."
+            RC=2 die "${MIRROR} is checked out here; the tool will not move the checked-out branch. Nothing changed."
         fi
     fi
     if [[ "${NO_REMOTE}" -eq 1 ]]; then
         note "--no-remote: skipping the GitHub hop; local follows upstream directly"
-        git fetch -q . "refs/remotes/upstream/${DB}:refs/heads/${DB}" 2>&1 || { RC=2 die "could not fast-forward ${DB} from upstream"; }
+        git fetch -q . "refs/remotes/upstream/${DB}:refs/heads/${MIRROR}" 2>&1 || { RC=2 die "could not fast-forward ${MIRROR} from upstream"; }
         report_mirror
-        note "local ${DB} is now $(short "refs/heads/${DB}")"; return 0
+        note "local ${MIRROR} is now $(short "refs/heads/${MIRROR}")"; return 0
     fi
     command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 ||
         { RC=2 die "gh is missing or not authenticated, so the fork's mirror cannot be synced. Nothing changed. (--no-remote skips that hop.)"; }
@@ -382,32 +390,47 @@ do_sync_default() {
     if [[ -z "${parent%% *}" || -z "${up_id}" || "${parent%% *}" != "${up_id}" ]]; then
         RC=4 die "GitHub says ${slug}'s parent is '${parent#* }' (id ${parent%% *}), but the upstream remote '${up_slug}' is id '${up_id:-unknown}'; gh repo sync would pull from the wrong place. Nothing changed."
     fi
-    git fetch -q origin "+refs/heads/${DB}:refs/remotes/origin/${DB}" 2>&1 || { RC=2 die "cannot fetch origin/${DB}"; }
-    if ! git merge-base --is-ancestor "refs/remotes/origin/${DB}" "refs/remotes/upstream/${DB}"; then
-        RC=4 die "origin/${DB} has commits upstream/${DB} lacks, so the fork's mirror is not pure and a fast-forward sync is impossible. Nothing changed (no --force is ever used)."
+    git fetch -q origin "+refs/heads/${MIRROR}:refs/remotes/origin/${MIRROR}" 2>&1 || { RC=2 die "cannot fetch origin/${MIRROR}"; }
+    if ! git merge-base --is-ancestor "refs/remotes/origin/${MIRROR}" "refs/remotes/upstream/${DB}"; then
+        RC=4 die "origin/${MIRROR} has commits upstream/${DB} lacks, so the fork's mirror is not pure and a fast-forward sync is impossible. Nothing changed (no --force is ever used)."
     fi
     report_mirror
 
-    echo "== 2. fork mirror: gh repo sync ${slug} --branch ${DB}"
-    if ! gh repo sync "${slug}" --branch "${DB}" 2>&1 | sed 's/^/  gh: /'; then
+    echo "== 2. fork mirror: gh repo sync ${slug} --branch ${MIRROR}"
+    if ! gh repo sync "${slug}" --branch "${MIRROR}" 2>&1 | sed 's/^/  gh: /'; then
         RC=4 die "gh repo sync failed; local is unchanged"
     fi
 
-    echo "== 3. local: fetch origin, fast-forward ${DB} from it"
-    git fetch -q origin "+refs/heads/${DB}:refs/remotes/origin/${DB}" 2>&1 || { RC=2 die "cannot fetch origin/${DB} after the sync"; }
+    echo "== 3. local: fetch origin, fast-forward ${MIRROR} from it"
+    git fetch -q origin "+refs/heads/${MIRROR}:refs/remotes/origin/${MIRROR}" 2>&1 || { RC=2 die "cannot fetch origin/${MIRROR} after the sync"; }
     if [[ "${local_ok}" -eq 1 ]]; then
-        git fetch -q . "refs/remotes/origin/${DB}:refs/heads/${DB}" 2>&1 || { RC=2 die "could not fast-forward ${DB} from origin (checked out in another worktree?)"; }
+        git fetch -q . "refs/remotes/origin/${MIRROR}:refs/heads/${MIRROR}" 2>&1 || { RC=2 die "could not fast-forward ${MIRROR} from origin (checked out in another worktree?)"; }
     else
-        git branch "${DB}" "refs/remotes/origin/${DB}"
+        git branch "${MIRROR}" "refs/remotes/origin/${MIRROR}"
     fi
-    note "origin/${DB} $(short "refs/remotes/origin/${DB}")   local ${DB} $(short "refs/heads/${DB}")   upstream/${DB} $(short "refs/remotes/upstream/${DB}")"
-    if [[ "$(git rev-parse "refs/heads/${DB}")" != "$(git rev-parse "refs/remotes/upstream/${DB}")" ]]; then
+    note "origin/${MIRROR} $(short "refs/remotes/origin/${MIRROR}")   local ${MIRROR} $(short "refs/heads/${MIRROR}")   upstream/${DB} $(short "refs/remotes/upstream/${DB}")"
+    if [[ "$(git rev-parse "refs/heads/${MIRROR}")" != "$(git rev-parse "refs/remotes/upstream/${DB}")" ]]; then
         note "NOTE: upstream/${DB} moved while this ran; the mirror is one sync behind. Re-run."
     fi
+}
+
+# quarantine: on the checked-out --branch, move the agent rule files and add the fork notice,
+# with no merge. For a branch that already contains upstream (the first quarantine of a default
+# branch) or one that was synced by some other means.
+do_quarantine() {
+    detect_default_branch; [[ -n "${UP_REF}" ]] || UP_REF="upstream/${DB}"
+    TARGET_REF="${UP_REF}"
+    git rev-parse -q --verify "refs/remotes/upstream/${DB}" >/dev/null || { RC=2 die "upstream/${DB} is not fetched; run git fetch upstream"; }
+    [[ "$(git symbolic-ref -q --short HEAD 2>/dev/null || true)" == "${BRANCH}" ]] || { RC=2 die "${BRANCH} is not checked out (pass --branch)"; }
+    [[ -z "$(git status --porcelain)" ]] || { RC=2 die "the working tree is not clean; commit or stash first"; }
+    [[ "${APPLY}" -eq 1 ]] || { echo "== quarantine plan for ${BRANCH} (dry run; pass --apply)"; "${QUARANTINE}" --branch "${BRANCH}" --upstream-ref "${TARGET_REF}" "${TOP}"; return; }
+    relocate_agent_rules
+    ensure_fork_notice
 }
 
 case "${CMD}" in
     plan)         do_plan || exit $? ;;
     sync-default) do_sync_default ;;
     merge)        do_merge ;;
+    quarantine)   require_quarantine_tool; do_quarantine ;;
 esac
