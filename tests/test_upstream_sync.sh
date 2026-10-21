@@ -264,5 +264,9 @@ newfork j3 v1.2.0
 check "J5: merge --apply without the dotfiles script refuses before merging" 2 "DOTFILES_DIR is not set" "-" \
   "cd '${W}/j3'; unset DOTFILES_DIR; ${SYNC} merge --tag v7.0.0 --default-branch main --apply; r=\$?; [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse tuned-builds)\" ] || exit 9; exit \$r"
 
+# The dotfiles script and agent_rule_paths.sh each carry the J5 path pattern; they must not drift.
+check "J5: dotfiles quarantine-instructions.sh and agent_rule_paths.sh carry the same path pattern" 0 "-" "-" \
+  "a=\$(sed -n \"s/^AGENT_RULE_RE='\\(.*\\)'\$/\\1/p\" '${DOTFILES_DIR}/common/quarantine-instructions.sh'); b=\$(. '$(dirname "${TOOL}")/agent_rule_paths.sh'; printf %s \"\$GPU_TUNED_AGENT_RULE_RE\"); [ -n \"\$a\" ] && [ \"\$a\" = \"\$b\" ]"
+
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
