@@ -122,10 +122,14 @@ quarantine, `merge --apply` and `quarantine --apply` put a fork notice at the to
 conflicts there: keep both and re-run to restore the notice. `current` needs branch protection
 (see the experiment), and nobody uses GitHub's web Sync fork on it.
 
-Migration per fork (not yet done anywhere; each remote step needs approval): create
-`upstream_mirror` at the mirror's commit, create `current` from it, quarantine, push, set
-`current` as the default and protect it, then delete `main`/`master` (a clone's old default
-needs `git remote set-head origin -a`).
+Migration per fork: `tools/migrate-fork-to-current.sh --repo ~/gh/<repo>` (dry run; `--apply` to do it,
+`--retire-old` to also delete the old mirror branch `main`/`master`). It checks the fork and its
+GitHub parent, builds `upstream_mirror` and `current` (in a scratch worktree), pushes both as new
+branches, sets `current` as the GitHub default, protects it, and sets `origin/HEAD`. The old
+branch is deleted only if contained in `upstream_mirror`, no PR is open, and `current` is already
+the GitHub default. Done so far: sqlite (2026-10-21; its GitHub default was `tuned-builds`, not
+the mirror). A clone's old default needs `git remote set-head origin -a`. Not yet exercised:
+updating a protected `current` by pull request.
 
 #### Experiment: renaming the default branch does not stop GitHub's sync (2026-10-21)
 
