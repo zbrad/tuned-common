@@ -113,6 +113,31 @@ puts a fork notice at the top of `README.md` (marker `<!-- fork-notice -->`, own
 added once); a repo without `README.md` is told to add it by hand. If upstream edits the README's
 first lines the merge conflicts there: keep both and re-run to restore the notice.
 
+#### Experiment: renaming the default branch does not stop GitHub's sync (2026-10-21)
+
+Claim tested: a fork whose default branch has a name upstream does not use (here `current`) cannot
+be synced from upstream. Result (empirical, GitHub API, not the web button): **false**. The
+`merge-upstream` endpoint merges upstream's *default branch* into whatever fork branch is named.
+Branch protection with a required pull request and `enforce_admins` **does** stop it.
+
+Rerun (throwaway fork of the public `octocat/Hello-World`, whose history is 3 commits; the
+fork was left to the account owner to delete):
+
+```bash
+gh repo fork octocat/Hello-World --clone=false          # -> <you>/Hello-World
+gh api -X POST repos/<you>/Hello-World/git/refs -f ref=refs/heads/current -f sha=553c2077f0edc3d5dc5d17262f6aa498e69d6f8e
+gh api -X PATCH repos/<you>/Hello-World -f default_branch=current
+gh api -X POST repos/<you>/Hello-World/merge-upstream -f branch=current
+# observed: {"message":"Successfully fetched and fast-forwarded from upstream octocat:master.","merge_type":"fast-forward",...}
+# diverged (one commit added to current first): "merge_type":"merge", the branch gets a 2-parent merge commit
+gh api -X PUT repos/<you>/Hello-World/branches/current/protection --input - <<< '{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}'
+gh api -X POST repos/<you>/Hello-World/merge-upstream -f branch=current
+# observed: HTTP 422 "protected branch 'current' check failed: Changes must be made through a pull request."
+```
+
+Not tested: the web "Sync fork" button itself (assumed to use the same endpoint; unverified), and
+whether protection also blocks it.
+
 ### The gates, and the exit status
 
 | Exit | Meaning |
