@@ -283,7 +283,7 @@ relocate_agent_rules() {
 
 # Top line of the README on a fork: says why upstream's agent rule files are not where they were.
 # The marker keeps it idempotent. Only README.md is handled; any other README name is reported.
-FORK_NOTICE_MARK='<!-- tuned-fork-notice -->'
+FORK_NOTICE_MARK='<!-- fork-notice -->'
 ensure_fork_notice() {
     local rd="${TOP}/README.md"
     [[ -f "${rd}" ]] || { note "no README.md: add the fork notice to the README by hand"; return 0; }

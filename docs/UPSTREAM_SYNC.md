@@ -109,7 +109,7 @@ $T merge --repo ~/gh/<repo> --branch <default> --pin upstream/<default> --apply 
 ```
 
 `sync-default` refuses such a branch (exit 4) and says so. After the quarantine, `merge --apply`
-puts a fork notice at the top of `README.md` (marker `<!-- tuned-fork-notice -->`, own commit,
+puts a fork notice at the top of `README.md` (marker `<!-- fork-notice -->`, own commit,
 added once); a repo without `README.md` is told to add it by hand. If upstream edits the README's
 first lines the merge conflicts there: keep both and re-run to restore the notice.
 

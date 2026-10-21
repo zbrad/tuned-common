@@ -265,7 +265,7 @@ newfork j4 v1.2.0
 check "J5: a merge adds the fork notice at the top of README.md in its own commit" 0 "dispatch:" "added the fork notice" \
   "cd '${W}/j4'; ${SYNC} merge --tag v7.0.0 --default-branch main --apply"
 check "J5: the notice is line 1-2, the README body is kept, tree clean" 0 "-" "-" \
-  "cd '${W}/j4'; [ \"\$(sed -n 1p README.md)\" = '<!-- tuned-fork-notice -->' ] && sed -n 2p README.md | grep -q 'Fork notice' && grep -qx '# Proj' README.md && [ -z \"\$(git status --porcelain)\" ] && [ \"\$(grep -c tuned-fork-notice README.md)\" = 1 ]"
+  "cd '${W}/j4'; [ \"\$(sed -n 1p README.md)\" = '<!-- fork-notice -->' ] && sed -n 2p README.md | grep -q 'Fork notice' && grep -qx '# Proj' README.md && [ -z \"\$(git status --porcelain)\" ] && [ \"\$(grep -c fork-notice README.md)\" = 1 ]"
 check "J5: a second merge leaves the existing notice alone" 0 "dispatch:" "fork notice already at the top" \
   "cd '${W}/j4'; ${SYNC} merge --tag v9.0.0 --default-branch main --apply --markers gpu_tuned_embed"
 newfork j5 v1.2.0
