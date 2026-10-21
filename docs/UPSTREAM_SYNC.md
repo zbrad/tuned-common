@@ -91,7 +91,11 @@ $T merge --repo ~/gh/<repo> --tag vX.Y.Z --apply
 
 `merge --apply` does, in order: refuses unless the tree is clean and you are on the tuned
 branch; creates `tuned-builds-backup-<date>`; `git merge --no-ff --no-commit <tag>`; checks the
-fork markers; commits only if they pass. It then prints the stamp base, which reads
+fork markers; commits only if they pass. It then runs the dotfiles repo's
+`common/quarantine-instructions.sh --apply` on the result, which moves any agent rule file the
+merge brought back to `rules_advisory/` or `rules_local/` in a commit of its own (J5). That script
+is a hard dependency: `merge --apply` exits 2 before changing anything if `DOTFILES_DIR` is unset
+or the script is missing. It then prints the stamp base, which reads
 `nearest <tag>+0` because the upstream ref is now the tag itself. It never pushes.
 
 ### The gates, and the exit status

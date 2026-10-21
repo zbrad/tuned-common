@@ -264,22 +264,21 @@ do_plan() {
 
 count_marker() { git grep -I -F -c -e "$1" "${@:2}" -- . 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}'; }
 
-# A merge can bring upstream's agent rule files back to default-loaded paths (new files, or a
-# rename undone). git mv them to rules_advisory/ in a commit of their own (J5). Files
-# already under rules_local/ are not touched; sorting a moved file into that home
-# is a person's call.
-relocate_agent_rules() {
-    local f n=0 dest
-    while read -r f; do
-        [[ -n "${f}" ]] || continue
-        dest="rules_advisory/${f}"
-        mkdir -p "$(dirname "${dest}")"; if git mv "${f}" "${dest}"; then n=$((n+1)); rmdir -p --ignore-fail-on-non-empty "$(dirname "${f}")" 2>/dev/null || true; else note "could not move ${f}"; fi
-    done < <(gpu_tuned_agent_rule_files "${TOP}")
-    [[ "${n}" -gt 0 ]] || { note "no agent rule files came back to default paths"; return 0; }
-    git commit -q -m "move ${n} agent rule file(s) the merge brought back to rules_advisory
+# The dotfiles repo's common/quarantine-instructions.sh is a hard dependency of merge --apply
+# (set DOTFILES_DIR to the checkout). Checked before the merge starts, never after.
+require_quarantine_tool() {
+    QUARANTINE="${DOTFILES_DIR:-}/common/quarantine-instructions.sh"
+    [[ -n "${DOTFILES_DIR:-}" ]] || RC=2 die "DOTFILES_DIR is not set; merge --apply needs the dotfiles checkout (common/quarantine-instructions.sh)"
+    [[ -x "${QUARANTINE}" ]] || RC=2 die "${QUARANTINE} is missing or not executable; update the dotfiles checkout (git pull --ff-only)"
+}
 
-Assisted-by: Claude"
-    note "moved ${n} agent rule file(s) to rules_advisory (own commit, $(short HEAD))"
+# A merge can bring upstream's agent rule files back to default-loaded paths (new files, or a
+# rename undone). The dotfiles script moves them to rules_advisory/ or rules_local/ (J5) in
+# a commit of its own. The merged target is the upstream ref: a tag on a release branch is
+# not in upstream's default branch, and its files are still upstream's.
+relocate_agent_rules() {
+    local args=(--apply --branch "${BRANCH}" --upstream-ref "${TARGET_REF}")
+    "${QUARANTINE}" "${args[@]}" "${TOP}" || { RC=2 die "quarantine-instructions.sh failed; the merge is committed, the agent rule files are not moved"; }
 }
 
 do_merge() {
@@ -289,6 +288,7 @@ do_merge() {
     [[ "${rc}" -eq 0 ]] || exit "${rc}"
     [[ "${APPLY}" -eq 1 && "${ALREADY}" -eq 0 ]] || exit 0
     [[ "${STALE_TAGS}" -eq 0 ]] || RC=4 die "refusing to --apply on a stale local tag; re-run with --fetch"
+    require_quarantine_tool
     pre="$(git rev-parse HEAD)"
     backup="${BRANCH}-backup-$(date -u +%F)"; n=1
     while git rev-parse -q --verify "refs/heads/${backup}" >/dev/null; do n=$((n+1)); backup="${BRANCH}-backup-$(date -u +%F)-${n}"; done

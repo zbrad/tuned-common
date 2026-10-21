@@ -10,6 +10,7 @@
 set -uo pipefail
 TOOL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/tools/upstream-sync.sh"
 PASS=0; FAIL=0
+export DOTFILES_DIR="${DOTFILES_DIR:-$HOME/gh/dotfiles}"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 
 check() {
@@ -17,7 +18,7 @@ check() {
     out="$(mktemp)"; err="$(mktemp)"
     bash -c "${script}" >"${out}" 2>"${err}"; rc=$?
     [[ "${rc}" -eq "${want_rc}" ]] || ok=0
-    if [[ "${err_re}" == "-" ]]; then [[ ! -s "${err}" ]] || ok=0; else grep -qE "${err_re}" "${err}" || ok=0; fi
+    if [[ "${err_re}" == "-" ]]; then [[ -z "$(grep -v "^dispatch: " "${err}")" ]] || ok=0; else grep -qE "${err_re}" "${err}" || ok=0; fi
     if [[ "${out_re}" != "-" ]]; then grep -qE "${out_re}" "${out}" || ok=0; fi
     if [[ "${ok}" -eq 1 ]]; then PASS=$((PASS+1)); echo "ok   - ${name}"
     else FAIL=$((FAIL+1)); echo "FAIL - ${name} (rc=${rc}, want ${want_rc})"; sed 's/^/     stderr: /' "${err}"; sed 's/^/     stdout: /' "${out}"; fi
@@ -252,13 +253,16 @@ check "default branch: read from upstream/HEAD when set" 0 "-" "upstream ref: up
 ( cd "${W}/seed" && git checkout -q -b rel-7 "${M5}" && echo up > CLAUDE.md && mkdir -p .claude/skills/s && echo up > .claude/skills/s/SKILL.md \
   && git add -f -A && git commit -qm "R7 agent files" && git tag v7.0.0 && git push -q o rel-7 --tags ) >/dev/null 2>&1
 newfork j1 v1.2.0
-check "J5: a merge that brings agent rule files back moves them to rules_advisory in their own commit" 0 "dispatch:" "moved 2 agent rule file" \
+check "J5: a merge that brings agent rule files back moves them to rules_advisory in their own commit" 0 "dispatch:" "moved 2 file\(s\) in one commit" \
   "cd '${W}/j1'; ${SYNC} merge --tag v7.0.0 --default-branch main --apply"
 check "J5: they are gone from the default paths and present under rules_advisory, tree clean" 0 "-" "-" \
   "cd '${W}/j1'; [ ! -e CLAUDE.md ] && [ ! -e .claude ] && [ -f rules_advisory/CLAUDE.md ] && [ -f rules_advisory/.claude/skills/s/SKILL.md ] && [ -z \"\$(git status --porcelain)\" ] && [ \"\$(git rev-list --parents -n1 HEAD | wc -w)\" = 2 ]"
 newfork j2 v1.2.0
-check "J5: a merge bringing none says so and adds no commit" 0 "dispatch:" "no agent rule files came back" \
+check "J5: a merge bringing none says so and adds no commit" 0 "dispatch:" "nothing to move" \
   "cd '${W}/j2'; ${SYNC} merge --tag v9.0.0 --default-branch main --apply --markers gpu_tuned_embed"
+newfork j3 v1.2.0
+check "J5: merge --apply without the dotfiles script refuses before merging" 2 "DOTFILES_DIR is not set" "-" \
+  "cd '${W}/j3'; unset DOTFILES_DIR; ${SYNC} merge --tag v7.0.0 --default-branch main --apply; r=\$?; [ \"\$(git rev-parse HEAD)\" = \"\$(git rev-parse tuned-builds)\" ] || exit 9; exit \$r"
 
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]
