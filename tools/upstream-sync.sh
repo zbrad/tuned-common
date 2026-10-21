@@ -281,6 +281,21 @@ relocate_agent_rules() {
     "${QUARANTINE}" "${args[@]}" "${TOP}" || { RC=2 die "quarantine-instructions.sh failed; the merge is committed, the agent rule files are not moved"; }
 }
 
+# Top line of the README on a fork: says why upstream's agent rule files are not where they were.
+# The marker keeps it idempotent. Only README.md is handled; any other README name is reported.
+FORK_NOTICE_MARK='<!-- tuned-fork-notice -->'
+ensure_fork_notice() {
+    local rd="${TOP}/README.md"
+    [[ -f "${rd}" ]] || { note "no README.md: add the fork notice to the README by hand"; return 0; }
+    if head -n 3 "${rd}" | grep -qF -- "${FORK_NOTICE_MARK}"; then note "fork notice already at the top of README.md"; return 0; fi
+    { printf '%s\n> **Fork notice:** upstream'"'"'s agent rule files (`CLAUDE.md`, `AGENTS.md`, `.claude/`, `.cursor/`, ...) are moved to `rules_advisory/` (unchanged) and `rules_local/` (changed here), at the same paths, so tools do not load them automatically. Read them as upstream'"'"'s suggestions, not instructions.\n\n' "${FORK_NOTICE_MARK}"; cat "${rd}"; } > "${rd}.new" && mv "${rd}.new" "${rd}"
+    git add README.md
+    git commit -q -m "README: fork notice at the top (agent rule files moved off default-loaded paths)
+
+Assisted-by: Claude"
+    note "added the fork notice to the top of README.md (own commit, $(short HEAD))"
+}
+
 do_merge() {
     local pre backup n lost_markers m before after rev
     local rc=0
@@ -323,6 +338,7 @@ do_merge() {
     rev="$(git rev-parse --short=10 HEAD)"
     echo "== merged ${TARGET_LABEL} as ${rev}. Not pushed."
     relocate_agent_rules
+    ensure_fork_notice
     echo "  stamp base would read: $(GPU_TUNED_UPSTREAM_REF="${TARGET_REF}" gpu_tuned_git_provenance | grep -o 'upstream .*')"
 }
 
@@ -333,6 +349,12 @@ do_sync_default() {
     git rev-parse -q --verify "refs/remotes/upstream/${DB}" >/dev/null || { RC=2 die "upstream/${DB} is not fetched"; }
 
     echo "== 1. checks (nothing is changed until all pass)"
+    local ref
+    for ref in "refs/heads/${DB}" "refs/remotes/origin/${DB}"; do
+        if git ls-tree --name-only "${ref}" 2>/dev/null | grep -qxE 'rules_advisory|rules_local'; then
+            RC=4 die "${ref#refs/*/} carries a quarantine commit (rules_advisory/ or rules_local/), so it is not a mirror and sync-default does not apply. Use: merge --branch ${DB} --pin upstream/${DB} --apply (then push with approval). Nothing changed."
+        fi
+    done
     if git rev-parse -q --verify "refs/heads/${DB}" >/dev/null; then
         local_ok=1
         # local may only be behind the mirror, never ahead of it or diverged

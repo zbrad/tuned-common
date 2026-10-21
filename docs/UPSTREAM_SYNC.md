@@ -98,6 +98,21 @@ is a hard dependency: `merge --apply` exits 2 before changing anything if `DOTFI
 or the script is missing. It then prints the stamp base, which reads
 `nearest <tag>+0` because the upstream ref is now the tag itself. It never pushes.
 
+### Default branch of a quarantined fork (decided 2026-10-21)
+
+A fork's published default branch must not ship upstream's agent rule files, so it carries a
+quarantine commit and is no longer a pure mirror. Sync it the way `tuned-builds` is synced:
+
+```bash
+$T merge --repo ~/gh/<repo> --branch <default> --pin upstream/<default> --apply   # merge, then quarantine
+# push <default> to origin with approval; gh repo sync would refuse (the fork has its own commits)
+```
+
+`sync-default` refuses such a branch (exit 4) and says so. After the quarantine, `merge --apply`
+puts a fork notice at the top of `README.md` (marker `<!-- tuned-fork-notice -->`, own commit,
+added once); a repo without `README.md` is told to add it by hand. If upstream edits the README's
+first lines the merge conflicts there: keep both and re-run to restore the notice.
+
 ### The gates, and the exit status
 
 | Exit | Meaning |
