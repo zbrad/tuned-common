@@ -325,6 +325,7 @@ do_merge() {
         exit 3
     fi
     lost_markers=""
+    GITDIR="$(git rev-parse --absolute-git-dir)"   # a linked worktree has a .git file, not a directory
     IFS=',' read -ra ML <<< "${MARKERS}"
     for m in "${ML[@]}"; do
         before="$(count_marker "${m}" "${pre}")"; after="$(count_marker "${m}" --cached)"
@@ -334,9 +335,9 @@ do_merge() {
     echo "  files our own commits changed that the merge removed lines from (review; informational):"
     # shellcheck disable=SC2046
     git rev-list --no-merges "${pre}" --not --remotes=upstream $(stable_tag_refs) 2>/dev/null |
-        while read -r c; do git diff-tree --no-commit-id --name-only -r "${c}"; done | sort -u > "${TOP}/.git/upstream-sync-forkfiles.$$"
-    git diff --cached --numstat "${pre}" | awk -F'\t' 'NR==FNR {f[$0]=1; next} ($3 in f) && $2>0 {printf "    %s  (-%s lines)\n", $3, $2}' "${TOP}/.git/upstream-sync-forkfiles.$$" - | head -15
-    rm -f "${TOP}/.git/upstream-sync-forkfiles.$$"
+        while read -r c; do git diff-tree --no-commit-id --name-only -r "${c}"; done | sort -u > "${GITDIR}/upstream-sync-forkfiles.$$"
+    git diff --cached --numstat "${pre}" | awk -F'\t' 'NR==FNR {f[$0]=1; next} ($3 in f) && $2>0 {printf "    %s  (-%s lines)\n", $3, $2}' "${GITDIR}/upstream-sync-forkfiles.$$" - | head -15
+    rm -f "${GITDIR}/upstream-sync-forkfiles.$$"
     if [[ -n "${lost_markers}" ]]; then
         echo "  FORK MARKER LOST:${lost_markers}. The merge is staged but NOT committed." >&2
         echo "  Inspect (git diff --cached ${pre} | grep -n marker), restore the lost code (git checkout ${pre} -- <file> or --ours), then commit; or: git merge --abort" >&2

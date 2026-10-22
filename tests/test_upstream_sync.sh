@@ -169,6 +169,10 @@ check "markers: --markers with a string that is not lost passes" 0 "-" "merged t
 newfork m3 v1.0.0
 check "markers: a marker that appears nowhere (count 0 -> 0, git grep exits 1) does not abort the merge" 0 "-" "marker 'no_such_marker_zz': 0 -> 0|merged tag v9\\.0\\.0" \
   "cd '${W}/m3'; ${SYNC} merge --tag v9.0.0 --default-branch main --markers no_such_marker_zz --apply"
+newfork m4 v1.0.0
+( cd "${W}/m4"; git worktree add -q -b wt-branch "${W}/m4-wt" tuned-builds ) >/dev/null 2>&1
+check "worktree: merge --apply works in a linked worktree (.git is a file there)" 0 "-" "merged tag v9\\.0\\.0" \
+  "cd '${W}/m4-wt'; ${SYNC} merge --tag v9.0.0 --default-branch main --branch wt-branch --markers no_such_marker_zz --apply"
 
 # ---- sync-default: the fork's mirror first, then local pulls from it ----
 # A stub gh that acts like GitHub's server-side fast-forward sync of a fork, and records what
