@@ -166,6 +166,9 @@ check "markers: ... and MERGE_HEAD is left for the user to inspect or abort" 0 "
 newfork m2 v1.0.0
 check "markers: --markers with a string that is not lost passes" 0 "-" "merged tag v9\\.0\\.0" \
   "cd '${W}/m2'; ${SYNC} merge --tag v9.0.0 --default-branch main --markers gpu_tuned_embed --apply"
+newfork m3 v1.0.0
+check "markers: a marker that appears nowhere (count 0 -> 0, git grep exits 1) does not abort the merge" 0 "-" "marker 'no_such_marker_zz': 0 -> 0|merged tag v9\\.0\\.0" \
+  "cd '${W}/m3'; ${SYNC} merge --tag v9.0.0 --default-branch main --markers no_such_marker_zz --apply"
 
 # ---- sync-default: the fork's mirror first, then local pulls from it ----
 # A stub gh that acts like GitHub's server-side fast-forward sync of a fork, and records what

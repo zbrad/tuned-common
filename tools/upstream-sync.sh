@@ -270,7 +270,7 @@ do_plan() {
     fi
 }
 
-count_marker() { git grep -I -F -c -e "$1" "${@:2}" -- . 2>/dev/null | awk -F: '{s+=$NF} END {print s+0}'; }
+count_marker() { { git grep -I -F -c -e "$1" "${@:2}" -- . 2>/dev/null || true; } | awk -F: '{s+=$NF} END {print s+0}'; }
 
 # The dotfiles repo's common/quarantine-instructions.sh is a hard dependency of merge --apply
 # (set DOTFILES_DIR to the checkout). Checked before the merge starts, never after.
