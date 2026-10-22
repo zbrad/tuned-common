@@ -133,7 +133,16 @@ the GitHub default. Done so far: sqlite (2026-10-21; its GitHub default was `tun
 the mirror). A clone's old default needs `git remote set-head origin -a`. Verified 2026-10-21 on sqlite (empirical): with that protection on, `git push --force` and
 `--delete` on `upstream_mirror` and a force push to `tuned-builds` were rejected (GH006), and
 `upstream-sync.sh sync-default` still fast-forwarded the mirror via `gh repo sync` (99774ca002 ->
-ac429ff804). Not yet exercised: updating a protected `current` by pull request.
+ac429ff804). Verified 2026-10-22 on sqlite (empirical): updating the protected `current` by pull request works.
+Reproduce, from a scratch worktree so the main checkout is not switched:
+`git branch current-next origin/current; git worktree add <dir> current-next;`
+`upstream-sync.sh merge --repo <dir> --branch current-next --pin <upstream_mirror sha> --default-branch <upstream default> --apply`
+(local only, 2-parent merge), `git push origin current-next`, `gh pr create --base current --head current-next`,
+`gh api -X PUT repos/<fork>/pulls/<n>/merge -f merge_method=merge` (required approvals is 0; admins are bound
+by the PR requirement but may merge their own PR). Result: `current` got a 2-parent merge commit
+(056d688aaa), `upstream_mirror` is an ancestor of `current`, 0 rule files outside the two homes. Running it
+found two tool bugs, both fixed with regression tests: a marker with zero occurrences aborted the merge
+(`git grep` exit 1 under pipefail), and `merge --apply` failed in a linked worktree (`.git` is a file).
 
 #### Experiment: renaming the default branch does not stop GitHub's sync (2026-10-21)
 
