@@ -12,7 +12,7 @@
 #          sets current as the GitHub default, protects it, sets origin/HEAD locally.
 # --retire-old: also deletes the old mirror branch (the one named like upstream's default, e.g.
 #          main/master) on origin and locally. Refused unless its tip is contained in
-#          upstream_mirror and no pull request is open. The GitHub default is never deleted.
+#          upstream_mirror and no pull request is still based on it. The GitHub default is never deleted.
 #
 # The checkout itself is never touched (current is built in a scratch worktree), so a dirty tree
 # does not matter.
@@ -128,7 +128,9 @@ if [[ "${RETIRE}" -eq 1 ]]; then
     echo "== retire '${DB}'"
     [[ "${DB}" != "${CUR}" && "${DB}" != "${MIRROR}" ]] || die "refusing: '${DB}' is one of the new branches"
     [[ "$(gh api "repos/${SLUG}" --jq .default_branch)" == "${CUR}" ]] || die "refusing: the GitHub default is not ${CUR}"
-    [[ "${OPEN_PRS}" == 0 ]] || die "refusing: ${OPEN_PRS} open PR(s) (unknown counts as unsafe)"
+    # GitHub retargets open PRs to the new default when it changes, so count what is still based on the old branch
+    base_prs="$(gh pr list -R "${SLUG}" --state open --base "${DB}" --json number --jq length 2>/dev/null || echo unknown)"
+    [[ "${base_prs}" == 0 ]] || die "refusing: ${base_prs} open PR(s) based on '${DB}' (unknown counts as unsafe)"
     if has_remote "${DB}"; then
         git fetch -q --no-recurse-submodules origin "+refs/heads/${DB}:refs/remotes/origin/${DB}"
         git merge-base --is-ancestor "refs/remotes/origin/${DB}" "refs/heads/${MIRROR}" || die "refusing: origin/${DB} has commits ${MIRROR} lacks"
