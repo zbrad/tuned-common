@@ -125,11 +125,15 @@ conflicts there: keep both and re-run to restore the notice. `current` needs bra
 Migration per fork: `tools/migrate-fork-to-current.sh --repo ~/gh/<repo>` (dry run; `--apply` to do it,
 `--retire-old` to also delete the old mirror branch `main`/`master`). It checks the fork and its
 GitHub parent, builds `upstream_mirror` and `current` (in a scratch worktree), pushes both as new
-branches, sets `current` as the GitHub default, protects it, and sets `origin/HEAD`. The old
+branches, sets `current` as the GitHub default, protects it (pull request required), protects
+`upstream_mirror` and `tuned-builds` against force push and deletion (admins included, no PR
+requirement, so the mirror's fast-forward sync and our pushes still work), and sets `origin/HEAD`. The old
 branch is deleted only if contained in `upstream_mirror`, no PR is open, and `current` is already
 the GitHub default. Done so far: sqlite (2026-10-21; its GitHub default was `tuned-builds`, not
-the mirror). A clone's old default needs `git remote set-head origin -a`. Not yet exercised:
-updating a protected `current` by pull request.
+the mirror). A clone's old default needs `git remote set-head origin -a`. Verified 2026-10-21 on sqlite (empirical): with that protection on, `git push --force` and
+`--delete` on `upstream_mirror` and a force push to `tuned-builds` were rejected (GH006), and
+`upstream-sync.sh sync-default` still fast-forwarded the mirror via `gh repo sync` (99774ca002 ->
+ac429ff804). Not yet exercised: updating a protected `current` by pull request.
 
 #### Experiment: renaming the default branch does not stop GitHub's sync (2026-10-21)
 

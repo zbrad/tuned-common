@@ -31,7 +31,7 @@ case "$1 $2" in
   "pr list") echo "${GH_PRS:-0}"; exit 0 ;;
 esac
 if [[ "$all" == *"-X PATCH"* ]]; then echo current > "${GH_STATE}/default"; git --git-dir "${GH_ORIGIN}" symbolic-ref HEAD refs/heads/current; echo current; exit 0; fi
-if [[ "$all" == *"-X PUT"* ]]; then cat > "${GH_STATE}/protection"; echo "https://api.github.com/protection"; exit 0; fi
+if [[ "$all" == *"-X PUT"* ]]; then b="${all#*branches/}"; b="${b%%/protection*}"; cat > "${GH_STATE}/protection.${b}"; echo "https://api.github.com/protection"; exit 0; fi
 if [[ "$all" == *actions/permissions* ]]; then echo false; exit 0; fi
 if [[ "$all" == *".default_branch"* ]]; then cat "${GH_STATE}/default"; exit 0; fi
 if [[ "$all" == *".visibility"* ]]; then echo public; exit 0; fi
@@ -61,7 +61,7 @@ newfork a
 check "dry run prints the plan and changes nothing" 0 "-" "dry run" \
   "$(env_for a); cd '${W}/a'; ${MIG} --default-branch main; [ \"\$(cat '${W}/a.state/default')\" = main ] && [ \"\$(git --git-dir '${W}/a-origin.git' for-each-ref refs/heads | wc -l)\" = 1 ] && ! git rev-parse -q --verify current"
 check "apply: creates upstream_mirror and current on origin, sets the default, protects current" 0 "-" "default branch -> current" \
-  "$(env_for a); cd '${W}/a'; ${MIG} --default-branch main --apply && [ \"\$(cat '${W}/a.state/default')\" = current ] && grep -q '\"enforce_admins\":true' '${W}/a.state/protection' && [ \"\$(heads a)\" = 'current main upstream_mirror ' ]"
+  "$(env_for a); cd '${W}/a'; ${MIG} --default-branch main --apply && [ \"\$(cat '${W}/a.state/default')\" = current ] && grep -q '\"required_approving_review_count\":0' '${W}/a.state/protection.current' && grep -q '\"required_pull_request_reviews\":null' '${W}/a.state/protection.upstream_mirror' && grep -q '\"allow_deletions\":false' '${W}/a.state/protection.upstream_mirror' && [ ! -e '${W}/a.state/protection.tuned-builds' ] && [ \"\$(heads a)\" = 'current main upstream_mirror ' ]"
 check "apply: current has the rule file moved, the notice on top, and sits on the mirror" 0 "-" "-" \
   "cd '${W}/a'; t=\$(git --git-dir '${W}/a-origin.git' rev-parse current); git --git-dir '${W}/a-origin.git' show current:rules_advisory/CLAUDE.md >/dev/null && ! git --git-dir '${W}/a-origin.git' cat-file -e current:CLAUDE.md 2>/dev/null && [ \"\$(git --git-dir '${W}/a-origin.git' show current:README.md | sed -n 1p)\" = '<!-- fork-notice -->' ] && git --git-dir '${W}/a-origin.git' merge-base --is-ancestor upstream_mirror current && [ \"\$(git --git-dir '${W}/a-origin.git' rev-parse upstream_mirror)\" = \"\$(git rev-parse upstream/main)\" ]"
 check "apply again is harmless" 0 "-" "origin already has current" \

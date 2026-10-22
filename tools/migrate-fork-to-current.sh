@@ -112,6 +112,15 @@ fi
 gh api -X PUT "repos/${SLUG}/branches/${CUR}/protection" --jq .url --input - <<'EOF' | sed 's/^/  protected: /'
 {"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}
 EOF
+# upstream_mirror and tuned-builds: no force push, no deletion, admins included; no PR requirement,
+# so the fast-forward sync of the mirror and our own pushes to tuned-builds still work.
+for b in "${MIRROR}" tuned-builds; do
+    has_remote_now="$(git ls-remote --heads origin "${b}")"
+    [[ -n "${has_remote_now}" ]] || { note "origin has no ${b}; not protected"; continue; }
+    gh api -X PUT "repos/${SLUG}/branches/${b}/protection" --jq .url --input - <<'EOF2' | sed "s|^|  protected (${b}, no force/delete): |"
+{"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":null,"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}
+EOF2
+done
 git fetch -q --no-recurse-submodules origin
 git remote set-head origin -a >/dev/null
 
