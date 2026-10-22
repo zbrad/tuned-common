@@ -79,8 +79,8 @@ newfork d
 check "missing DOTFILES_DIR is refused before anything changes" 2 "DOTFILES_DIR" "-" \
   "$(env_for d); unset DOTFILES_DIR; cd '${W}/d'; ${MIG} --default-branch main --apply; r=\$?; [ \"\$(heads d)\" = 'main ' ] || exit 9; exit \$r"
 newfork e
-check "a dirty tree is refused" 2 "not clean" "-" \
-  "$(env_for e); cd '${W}/e'; echo x > dirty.txt; git add dirty.txt; ${MIG} --default-branch main --apply"
+check "a dirty tree does not matter: the checkout is never touched" 0 "-" "== done" \
+  "$(env_for e); cd '${W}/e'; echo x > dirty.txt; ${MIG} --default-branch main --apply && [ -f dirty.txt ] && [ \"\$(git symbolic-ref --short HEAD)\" = work ]"
 
 echo; echo "passed=${PASS} failed=${FAIL}"
 [[ "${FAIL}" -eq 0 ]]

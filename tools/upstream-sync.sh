@@ -112,7 +112,7 @@ short() { git rev-parse --short=10 --verify -q "$1^{commit}" 2>/dev/null || echo
 rel()   { git rev-list --left-right --count "$1...$2" 2>/dev/null || echo "? ?"; }
 
 fetch_upstream() {
-    git fetch -q upstream "+refs/heads/${DB}:refs/remotes/upstream/${DB}" \
+    git fetch -q --no-recurse-submodules upstream "+refs/heads/${DB}:refs/remotes/upstream/${DB}" \
         "+refs/tags/${TAG_GLOB}:refs/tags/${TAG_GLOB}" 2>&1 | sed 's/^/  fetch: /' || true
 }
 

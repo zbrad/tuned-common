@@ -14,6 +14,8 @@
 #          main/master) on origin and locally. Refused unless its tip is contained in
 #          upstream_mirror and no pull request is open. The GitHub default is never deleted.
 #
+# The checkout itself is never touched (current is built in a scratch worktree), so a dirty tree
+# does not matter.
 # Needs DOTFILES_DIR (the quarantine script), gh authenticated, an `upstream` remote and a
 # GitHub origin. Every step checks its own state, so a half-finished run can be re-run.
 # Exit: 0 ok, 1 usage, 2 a check failed (nothing changed past that point).
@@ -46,7 +48,6 @@ echo "== checks"
 git remote get-url upstream >/dev/null 2>&1 || die "no 'upstream' remote: not a fork"
 git remote get-url origin >/dev/null 2>&1 || die "no 'origin' remote"
 [[ "$(git rev-parse --is-shallow-repository)" == false ]] || die "shallow clone: git fetch --unshallow upstream first"
-[[ -z "$(git status --porcelain)" ]] || die "the working tree is not clean"
 [[ -n "${DOTFILES_DIR:-}" && -x "${DOTFILES_DIR}/common/quarantine-instructions.sh" ]] ||
     die "DOTFILES_DIR is unset or lacks common/quarantine-instructions.sh"
 command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 || die "gh is missing or not authenticated"
@@ -60,7 +61,7 @@ if [[ -z "${DB}" ]]; then
     [[ -n "${DB}" ]] || DB="$(git ls-remote --symref upstream HEAD 2>/dev/null | awk '/^ref:/ {sub("refs/heads/","",$2); print $2; exit}' || true)"
     [[ -n "${DB}" ]] || die "cannot determine upstream's default branch; pass --default-branch"
 fi
-git fetch -q upstream "+refs/heads/${DB}:refs/remotes/upstream/${DB}" || die "cannot fetch upstream/${DB}"
+git fetch -q --no-recurse-submodules upstream "+refs/heads/${DB}:refs/remotes/upstream/${DB}" || die "cannot fetch upstream/${DB}"
 GH_DEFAULT="$(gh api "repos/${SLUG}" --jq .default_branch)"
 VIS="$(gh api "repos/${SLUG}" --jq .visibility)"
 ACTIONS="$(gh api "repos/${SLUG}/actions/permissions" --jq .enabled 2>/dev/null || echo unknown)"
@@ -111,7 +112,7 @@ fi
 gh api -X PUT "repos/${SLUG}/branches/${CUR}/protection" --jq .url --input - <<'EOF' | sed 's/^/  protected: /'
 {"required_status_checks":null,"enforce_admins":true,"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null,"allow_force_pushes":false,"allow_deletions":false}
 EOF
-git fetch -q origin
+git fetch -q --no-recurse-submodules origin
 git remote set-head origin -a >/dev/null
 
 if [[ "${RETIRE}" -eq 1 ]]; then
@@ -120,7 +121,7 @@ if [[ "${RETIRE}" -eq 1 ]]; then
     [[ "$(gh api "repos/${SLUG}" --jq .default_branch)" == "${CUR}" ]] || die "refusing: the GitHub default is not ${CUR}"
     [[ "${OPEN_PRS}" == 0 ]] || die "refusing: ${OPEN_PRS} open PR(s) (unknown counts as unsafe)"
     if has_remote "${DB}"; then
-        git fetch -q origin "+refs/heads/${DB}:refs/remotes/origin/${DB}"
+        git fetch -q --no-recurse-submodules origin "+refs/heads/${DB}:refs/remotes/origin/${DB}"
         git merge-base --is-ancestor "refs/remotes/origin/${DB}" "refs/heads/${MIRROR}" || die "refusing: origin/${DB} has commits ${MIRROR} lacks"
         git push origin --delete "${DB}" 2>&1 | grep -v '^dispatch:' | sed 's/^/  push: /' || true
         [[ -z "$(git ls-remote --heads origin "${DB}")" ]] || die "origin still has '${DB}' after the delete; local '${DB}' left alone"
@@ -132,6 +133,6 @@ if [[ "${RETIRE}" -eq 1 ]]; then
         elif git merge-base --is-ancestor "refs/heads/${DB}" "refs/heads/${MIRROR}"; then git branch -q -D "${DB}"; note "deleted local ${DB}"
         else note "local ${DB} has commits ${MIRROR} lacks; left"; fi
     fi
-    git fetch -q --prune origin
+    git fetch -q --no-recurse-submodules --prune origin
 fi
 echo "== done (nothing else pushed). Next: sync ${MIRROR} with 'upstream-sync.sh sync-default', update ${CUR} by pull request."
