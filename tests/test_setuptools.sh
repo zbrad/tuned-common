@@ -23,7 +23,7 @@ check() { # check <name> <want-rc> <output-regex> <min>
 }
 
 [[ "$(ver)" == "80.10.2" ]] || { echo "FAIL: test venv does not start at 80.10.2 ($(ver))"; exit 1; }
-check "an old setuptools is upgraded to the current release" 0 'setuptools [0-9.]+ \(current release; minimum 84\.1\.0\)' "84.1.0"
+check "an old setuptools is upgraded to the current release" 0 'setuptools [0-9.]+ \(current release; minimum 84\.2\)' "84.2"
 [[ "$(ver)" != "80.10.2" ]] && { PASS=$((PASS + 1)); echo "ok:   the venv no longer has 80.10.2 ($(ver))"; } || { FAIL=$((FAIL + 1)); echo "FAIL: venv still at 80.10.2"; }
 check "a minimum above any release fails" 1 'could not install setuptools>=9999' "9999"
 

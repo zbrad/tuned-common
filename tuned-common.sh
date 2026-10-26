@@ -2890,9 +2890,10 @@ PY
 # gpu_tuned_install_setuptools -- put the current setuptools release in the active build venv, last (C8). setuptools is a
 # critical build component and upstream's requirement files cap it (vllm: <81, torch: <82), so a later `pip install -r`
 # can pull it back down; call this after the last other pip install in build.sh. It upgrades to the newest release and
-# fails if the result is older than GPU_TUNED_SETUPTOOLS_MIN (the first release with the known advisories fixed:
-# GHSA-xmj3-9gf7-h52w is fixed in 84.1.0, PYSEC-2026-3447 in 83.0.0). Prints the version so the build log records it.
-GPU_TUNED_SETUPTOOLS_MIN="${GPU_TUNED_SETUPTOOLS_MIN:-84.1.0}"
+# fails if the result is older than GPU_TUNED_SETUPTOOLS_MIN (84.2, the user's floor of 2026-10-26; it is above the
+# releases that fixed the advisories the dependency audit found: GHSA-xmj3-9gf7-h52w in 84.1.0, PYSEC-2026-3447 in 83.0.0).
+# Prints the version so the build log records it.
+GPU_TUNED_SETUPTOOLS_MIN="${GPU_TUNED_SETUPTOOLS_MIN:-84.2}"
 
 gpu_tuned_install_setuptools() {
     local have
