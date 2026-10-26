@@ -2827,8 +2827,13 @@ report, wheel = sys.argv[1], sys.argv[2]
 own = re.sub(r"[-_.]+", "-", wheel.rsplit("/", 1)[-1].split("-", 1)[0]).lower()
 for item in json.load(open(report))["install"]:
     meta = item["metadata"]
-    if re.sub(r"[-_.]+", "-", meta["name"]).lower() != own:
-        sys.stdout.write(f'{meta["name"]}=={meta["version"]}\n')
+    if re.sub(r"[-_.]+", "-", meta["name"]).lower() == own:
+        continue
+    if item.get("is_direct"):
+        # A direct-URL dependency (our own tuned torch or flashinfer wheel) has a local version that is not on PyPI.
+        sys.stderr.write(f'not audited (direct URL, not on PyPI): {meta["name"]}=={meta["version"]}\n')
+        continue
+    sys.stdout.write(f'{meta["name"]}=={meta["version"]}\n')
 PY
         fi
         if [[ ${rc} -eq 0 ]]; then

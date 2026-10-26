@@ -37,5 +37,16 @@ check "every advisory accepted with a reason passes" 0 'ACCEPTED: jinja2==3.1.4 
 sed 's/  accepted by the test$//' "${W}/allow.txt" > "${W}/noreason.txt"
 check "an allow line without a reason fails" 1 "has no reason" "${W}/noreason.txt"
 
+# A direct-URL dependency (a tuned torch or flashinfer wheel) has a local version that is not on PyPI: skipped, with a note.
+mkdir -p "${W}/dsrc/localdep-1.0+local/localdep-1.0+local.dist-info" "${W}/dsrc/top-1.0/top-1.0.dist-info" "${W}/dout"
+printf 'Metadata-Version: 2.1\nName: localdep\nVersion: 1.0+local\n' > "${W}/dsrc/localdep-1.0+local/localdep-1.0+local.dist-info/METADATA"
+printf 'Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\nTag: py3-none-any\n' > "${W}/dsrc/localdep-1.0+local/localdep-1.0+local.dist-info/WHEEL"
+"${W}/packer/bin/python" -m wheel pack "${W}/dsrc/localdep-1.0+local" --dest-dir "${W}/dout" > /dev/null
+printf 'Metadata-Version: 2.1\nName: top\nVersion: 1.0\nRequires-Dist: localdep @ file://%s\nRequires-Dist: Jinja2==3.1.6\n' "${W}/dout/localdep-1.0+local-py3-none-any.whl" > "${W}/dsrc/top-1.0/top-1.0.dist-info/METADATA"
+cp "${W}/dsrc/localdep-1.0+local/localdep-1.0+local.dist-info/WHEEL" "${W}/dsrc/top-1.0/top-1.0.dist-info/WHEEL"
+"${W}/packer/bin/python" -m wheel pack "${W}/dsrc/top-1.0" --dest-dir "${W}/dout" > /dev/null
+WHEEL="${W}/dout/top-1.0-py3-none-any.whl"
+check "a direct-URL dependency is skipped with a note and the rest passes" 0 'not audited \(direct URL, not on PyPI\): localdep==1.0\+local' "${W}/empty.txt"
+
 echo "${PASS} passed, ${FAIL} failed"
 [[ ${FAIL} -eq 0 ]]
