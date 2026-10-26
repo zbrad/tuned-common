@@ -2887,6 +2887,23 @@ PY
     return "${rc}"
 }
 
+# gpu_tuned_install_setuptools -- put the current setuptools release in the active build venv, last (C8). setuptools is a
+# critical build component and upstream's requirement files cap it (vllm: <81, torch: <82), so a later `pip install -r`
+# can pull it back down; call this after the last other pip install in build.sh. It upgrades to the newest release and
+# fails if the result is older than GPU_TUNED_SETUPTOOLS_MIN (the first release with the known advisories fixed:
+# GHSA-xmj3-9gf7-h52w is fixed in 84.1.0, PYSEC-2026-3447 in 83.0.0). Prints the version so the build log records it.
+GPU_TUNED_SETUPTOOLS_MIN="${GPU_TUNED_SETUPTOOLS_MIN:-84.1.0}"
+
+gpu_tuned_install_setuptools() {
+    local have
+    python3 -m pip install --quiet --disable-pip-version-check --upgrade "setuptools>=${GPU_TUNED_SETUPTOOLS_MIN}" \
+        || { echo "ERROR: could not install setuptools>=${GPU_TUNED_SETUPTOOLS_MIN} (network? an index without it?)." >&2; return 1; }
+    have="$(python3 -c 'import setuptools; print(setuptools.__version__)')" || return 1
+    printf '%s\n%s\n' "${GPU_TUNED_SETUPTOOLS_MIN}" "${have}" | sort -V -C \
+        || { echo "ERROR: setuptools ${have} is older than the minimum ${GPU_TUNED_SETUPTOOLS_MIN}." >&2; return 1; }
+    echo "setuptools ${have} (current release; minimum ${GPU_TUNED_SETUPTOOLS_MIN})"
+}
+
 if [[ -z "${GPU_TUNED_NO_ERR_TRAP:-}" && -z "$(trap -p ERR)" ]]; then
     set -o errtrace
     trap 'gpu_tuned_on_err "$?" "${BASH_COMMAND}"' ERR
