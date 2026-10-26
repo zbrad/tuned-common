@@ -84,6 +84,7 @@ Legend: **N** native, **W** wheel, **D** deployment repo, **All** every repo wit
 | C5 | Default build parallelism is `gpu_tuned_jobs` (largest prime <= nproc-2); an environment override wins. | All | grep: no bare `$(nproc)` as a default | rollout 2026-10-15 |
 | C6 | Tuned builds never write to the repo's everyday dev build directory (the one local services may run). | N | path check | practice 2026-10-15 (llama.cpp `build/`) |
 | C7 | Pip-installed CMake packages (RAPIDS wheels, nvtx3) are kept out of native builds (`gpu_tuned_cmake_ignore_pip_prefixes`) and the configured cache is checked (`gpu_tuned_verify_no_pip_cmake_deps`). | N that build against RAPIDS | read `build.sh` | tuned-common commits 72430ce, c928ac7 |
+| C8 | A build that installs Python packages ends its `pip install` section with `gpu_tuned_install_setuptools`: the current setuptools release, at least `GPU_TUNED_SETUPTOOLS_MIN`, installed last because upstream's requirement files cap it (vllm `<81`, torch `<82`) and a later `pip install -r` pulls it back down. The version is printed, so the build log records it. A build.sh that installs no Python packages passes with a note. | N, W | `gpu_tuned_install_setuptools` call in `tuned/build.sh` | user 2026-10-26 ("make it most current, setuptools is a critical component"); the audit of the vllm wheel found setuptools 80.10.2 held back by the `<81` cap |
 
 #### Layout today
 

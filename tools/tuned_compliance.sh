@@ -203,6 +203,14 @@ chk_C5() {
     local h; h="$(nc_grep '\$\(nproc|\$\{?NPROC|nproc\)' "${OWN[@]}" | grep -v gpu_tuned_jobs)"
     [[ -z "${h}" ]] && pass "no bare nproc default" || fail "$(echo "${h}" | wc -l) bare nproc use(s): $(echo "${h}" | first 3)"
 }
+chk_C8() {
+    local b="${T}/build.sh" h
+    [[ -f "${b}" ]] || { unk "no tuned/build.sh"; return; }
+    [[ -n "$(nc_grep 'pip3?[[:space:]]+install|-m[[:space:]]+pip[[:space:]]+install' "${b}")" ]] \
+        || { pass "build.sh installs no Python packages, so there is no build setuptools"; return; }
+    h="$(nc_grep 'gpu_tuned_install_setuptools' "${b}")"
+    [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "build.sh runs pip install but never gpu_tuned_install_setuptools (build venv keeps upstream's capped setuptools)"
+}
 chk_E2() {
     [[ "${ONLINE}" -eq 1 ]] || { unk "needs gh (rerun with --online)"; return; }
     local slug tags newest total bad
@@ -281,7 +289,7 @@ chk_J5() {
 
 # ---- the requirement register: ID | kinds it applies to (any, native, wheel) ---------------------
 REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any B1:native B2:wheel B3:native B4:any
-C1:any C2:native C3:native C4:native C5:any C6:native C7:native D1:native D2:native D3:native
+C1:any C2:native C3:native C4:native C5:any C6:native C7:native C8:any D1:native D2:native D3:native
 E1:wheel E2:native E3:any E4:any E5:any E6:any E7:any E8:any F1:native F2:native F3:native F4:wheel
 G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native H9:wheel
 I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any J5:any"
