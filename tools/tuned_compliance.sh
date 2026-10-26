@@ -236,6 +236,10 @@ chk_H7() {
     local h; h="$(nc_grep 'gpu_tuned_embed_build_info_json|gpu_tuned_stamp_lib_json|gpu_tuned_write_build_info_json' "${OWN[@]}")"
     [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_stamp_lib_json / gpu_tuned_embed_build_info_json call (free-text stamp)"
 }
+chk_H9() {
+    local h; h="$(nc_grep 'gpu_tuned_audit_deps' "${T}/package.sh" "${T}"/*wheel*.sh)"
+    [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_audit_deps call in package.sh or the wheel script (no dependency audit)"
+}
 chk_I1() {
     [[ -f "${T}/release.sh" ]] || { unk "no release.sh"; return; }
     local miss="" k
@@ -279,7 +283,7 @@ chk_J5() {
 REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any B1:native B2:wheel B3:native B4:any
 C1:any C2:native C3:native C4:native C5:any C6:native C7:native D1:native D2:native D3:native
 E1:wheel E2:native E3:any E4:any E5:any E6:any E7:any E8:any F1:native F2:native F3:native F4:wheel
-G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native
+G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native H9:wheel
 I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any J5:any"
 
 applies() {  # applies <kind-needed>

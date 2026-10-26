@@ -120,6 +120,11 @@ run 'J5 fork with .agents fails'            J5 FAIL 'git remote add upstream htt
 run 'J5 fork with files moved to rules_advisory passes' J5 PASS 'git remote add upstream https://github.com/u/r.git; mkdir -p rules_advisory rules_local/.claude; echo x > rules_advisory/CLAUDE.md; echo x > rules_local/.claude/a.json'
 run 'kinds: wheel check N/A on native'    B2 N/A 'true'
 run 'kinds: wheel script makes B2 apply'  B2 PASS 'echo "# w" > tuned/wheel.sh'
+run 'H9 is N/A on a native-only repo'       H9 N/A 'true'
+run 'H9 wheel script without the audit fails' H9 FAIL 'echo "# w" > tuned/wheel.sh'
+run 'H9 wheel script that calls the audit passes' H9 PASS 'echo "gpu_tuned_audit_deps \"\$W\" log" > tuned/wheel.sh'
+run 'H9 a native repo whose package.sh audits passes (kinds native,wheel)' H9 PASS 'echo "gpu_tuned_audit_deps \"\$W\" log" >> tuned/package.sh' --kinds native,wheel
+run 'H9 native+wheel without the audit fails' H9 FAIL 'true' --kinds native,wheel
 run 'D1 is UNKNOWN until attested'        D1 UNKNOWN 'true'
 
 # exceptions, attestations and the config itself
