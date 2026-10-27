@@ -66,5 +66,15 @@ out="$(GPU_TUNED_AUDIT_ALLOW_FILE="${W}/empty.txt" gpu_tuned_audit_deps "${WHEEL
 [[ ${rc} -ne 0 ]] && { PASS=$((PASS + 1)); echo "ok:   without --find-links the sibling is unresolvable and the audit fails closed"; } \
     || { FAIL=$((FAIL + 1)); echo "FAIL: audit passed although sib is not resolvable"; }
 
+# A wheel with no runtime dependencies (librmm) has nothing to audit: that passes, and the log says why.
+mkdir -p "${W}/src/lone-1.0/lone-1.0.dist-info"
+printf 'Metadata-Version: 2.1\nName: lone\nVersion: 1.0\n' > "${W}/src/lone-1.0/lone-1.0.dist-info/METADATA"
+cp "${W}/src/fake-1.0/fake-1.0.dist-info/WHEEL" "${W}/src/lone-1.0/lone-1.0.dist-info/WHEEL"
+"${W}/packer/bin/python" -m wheel pack "${W}/src/lone-1.0" --dest-dir "${W}/out" > /dev/null
+out="$(GPU_TUNED_AUDIT_ALLOW_FILE="${W}/empty.txt" gpu_tuned_audit_deps "${W}/out/lone-1.0-py3-none-any.whl" "${W}/log.txt" 2>&1)"; rc=$?
+[[ "${rc}" -eq 0 ]] && grep -q 'no runtime dependencies' <<< "${out}" \
+    && { PASS=$((PASS + 1)); echo "ok:   a wheel with no dependencies passes"; } \
+    || { FAIL=$((FAIL + 1)); echo "FAIL: a wheel with no dependencies (rc=${rc})"; sed 's/^/        /' <<< "${out}" | head; }
+
 echo "${PASS} passed, ${FAIL} failed"
 [[ ${FAIL} -eq 0 ]]
