@@ -204,7 +204,16 @@ chk_C5() {
     [[ -z "${h}" ]] && pass "no bare nproc default" || fail "$(echo "${h}" | wc -l) bare nproc use(s): $(echo "${h}" | first 3)"
 }
 # C8 and C9 look at every script that builds Python packages: build.sh, wheel.sh and the *wheel*.sh scripts.
-py_build_scripts() { ls "${T}"/build.sh "${T}"/wheel.sh "${T}"/*wheel*.sh 2>/dev/null | sort -u; }
+# Libraries (*common*) and validation scripts (*validate*, which use a disposable test venv) are not build scripts. A script
+# that only activates the venv build.sh made (it has bin/activate but no venv creation) relies on build.sh's setup.
+py_build_scripts() {
+    local f
+    for f in $(ls "${T}"/build.sh "${T}"/wheel.sh "${T}"/*wheel*.sh 2>/dev/null | sort -u); do
+        case "$(basename "${f}")" in *common*|*validate*) continue ;; esac
+        if [[ "$(basename "${f}")" != build.sh && -n "$(nc_grep 'bin/activate' "${f}")" && -z "$(nc_grep '-m[[:space:]]+venv|uv[[:space:]]+venv|virtualenv|gpu_tuned_setup_build_venv' "${f}")" ]]; then continue; fi
+        echo "${f}"
+    done
+}
 chk_C8() {
     local f bad="" good="" n=0
     [[ -f "${T}/build.sh" ]] || { unk "no tuned/build.sh"; return; }

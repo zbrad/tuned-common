@@ -136,6 +136,8 @@ run 'C8 a wheel script that pip-installs without the setuptools call fails' C8 F
 run 'C8 a wheel script with pip install and the setuptools call passes' C8 PASS 'printf "%s\n" "pip install x" "gpu_tuned_install_setuptools" > tuned/raft_wheel_x.sh'
 run 'C9 a wheel script that runs pip wheel without the setup function fails' C9 FAIL 'echo "pip wheel --no-deps x" > tuned/wheel.sh'
 run 'C9 a wheel script that sets up the build venv passes' C9 PASS 'printf "%s\n" "gpu_tuned_setup_build_venv v r" "pip wheel x" > tuned/wheel.sh'
+run 'C9 a wheel script that only activates the build.sh venv is not a venv maker' C9 PASS 'printf "%s\n" "source v/bin/activate" "pip wheel x" > tuned/wheel.sh'
+run 'C8 a *common* library with pip install is not a build script' C8 PASS 'echo "pip install x" > tuned/raft_wheel_common.sh'
 run 'H10 is N/A on a native-only repo' H10 N/A 'true'
 run 'H10 wheel script without the venv check fails' H10 FAIL 'echo "# w" > tuned/wheel.sh'
 run 'H10 wheel script that checks the venv passes' H10 PASS 'echo "gpu_tuned_check_venv_setuptools \"\$V\"" > tuned/wheel.sh'
