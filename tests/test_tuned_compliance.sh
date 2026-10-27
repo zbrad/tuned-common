@@ -128,6 +128,13 @@ run 'H9 native+wheel without the audit fails' H9 FAIL 'true' --kinds native,whee
 run 'C8 passes when build.sh installs no Python packages' C8 PASS 'true'
 run 'C8 pip install without the setuptools call fails' C8 FAIL 'echo "pip install build wheel" >> tuned/build.sh'
 run 'C8 pip install then gpu_tuned_install_setuptools passes' C8 PASS 'printf "%s\n" "pip install build wheel" "gpu_tuned_install_setuptools" >> tuned/build.sh'
+run 'C9 passes when build.sh uses no Python venv' C9 PASS 'true'
+run 'C9 a hand-rolled venv without the setup function fails' C9 FAIL 'printf "%s\n" "python3 -m venv v" "source v/bin/activate" >> tuned/build.sh'
+run 'C9 pip install without the setup function fails' C9 FAIL 'echo "pip install build" >> tuned/build.sh'
+run 'C9 gpu_tuned_setup_build_venv passes' C9 PASS 'echo "gpu_tuned_setup_build_venv \"\$V\" \"\$R\"" >> tuned/build.sh'
+run 'H10 is N/A on a native-only repo' H10 N/A 'true'
+run 'H10 wheel script without the venv check fails' H10 FAIL 'echo "# w" > tuned/wheel.sh'
+run 'H10 wheel script that checks the venv passes' H10 PASS 'echo "gpu_tuned_check_venv_setuptools \"\$V\"" > tuned/wheel.sh'
 run 'D1 is UNKNOWN until attested'        D1 UNKNOWN 'true'
 
 # exceptions, attestations and the config itself

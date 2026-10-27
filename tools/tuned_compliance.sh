@@ -211,6 +211,15 @@ chk_C8() {
     h="$(nc_grep 'gpu_tuned_install_setuptools' "${b}")"
     [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "build.sh runs pip install but never gpu_tuned_install_setuptools (build venv keeps upstream's capped setuptools)"
 }
+chk_C9() {
+    local b="${T}/build.sh" h
+    [[ -f "${b}" ]] || { unk "no tuned/build.sh"; return; }
+    h="$(nc_grep 'gpu_tuned_setup_build_venv' "${b}")"
+    [[ -n "${h}" ]] && { pass "$(echo "${h}" | first 2)"; return; }
+    [[ -n "$(nc_grep 'venv[[:space:]]+|-m[[:space:]]+venv|bin/activate|pip3?[[:space:]]+install' "${b}")" ]] \
+        && fail "build.sh makes or uses a Python venv without gpu_tuned_setup_build_venv" \
+        || pass "build.sh uses no Python venv"
+}
 chk_E2() {
     [[ "${ONLINE}" -eq 1 ]] || { unk "needs gh (rerun with --online)"; return; }
     local slug tags newest total bad
@@ -247,6 +256,10 @@ chk_H7() {
 chk_H9() {
     local h; h="$(nc_grep 'gpu_tuned_audit_deps' "${T}/package.sh" "${T}"/*wheel*.sh)"
     [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_audit_deps call in package.sh or the wheel script (no dependency audit)"
+}
+chk_H10() {
+    local h; h="$(nc_grep 'gpu_tuned_check_venv_setuptools' "${T}/package.sh" "${T}"/*wheel*.sh)"
+    [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_check_venv_setuptools call in package.sh or the wheel script (a wheel can ship from a build venv with an old setuptools)"
 }
 chk_I1() {
     [[ -f "${T}/release.sh" ]] || { unk "no release.sh"; return; }
@@ -289,9 +302,9 @@ chk_J5() {
 
 # ---- the requirement register: ID | kinds it applies to (any, native, wheel) ---------------------
 REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any B1:native B2:wheel B3:native B4:any
-C1:any C2:native C3:native C4:native C5:any C6:native C7:native C8:any D1:native D2:native D3:native
+C1:any C2:native C3:native C4:native C5:any C6:native C7:native C8:any C9:any D1:native D2:native D3:native
 E1:wheel E2:native E3:any E4:any E5:any E6:any E7:any E8:any F1:native F2:native F3:native F4:wheel
-G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native H9:wheel
+G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native H9:wheel H10:wheel
 I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any J5:any"
 
 applies() {  # applies <kind-needed>
