@@ -2313,17 +2313,20 @@ CMAKE
 }
 
 # gpu_tuned_cmake_ignore_pip_prefixes -- print (no newline) the semicolon list of user-site pip prefixes
-# a build must not search: ~/.local/lib/python*/site-packages itself and every package directory
+# a build must not search: ~/.local/lib/python*/site-packages (and the active build venv's) itself and every package directory
 # under it that ships CMake config (lib*/cmake or share/cmake). Pass it as
 #   -DCMAKE_IGNORE_PREFIX_PATH=<list>
 # Why: pip wheels such as librmm install complete CMake packages (nvtx3, rmm, rapids_logger ...), and
 # CMake finds them through the site-packages directories. A dependency found there is not fetched, so
 # it is not installed with our package either: the tarball's rmm-dependencies.cmake then asks for
 # nvtx3 that the package does not contain, and the build also silently depends on whatever stock
-# wheel happens to be installed. Prints nothing when there is no user site-packages.
+# wheel happens to be installed. Prints nothing when there is no user or venv site-packages.
 gpu_tuned_cmake_ignore_pip_prefixes() {
-    local sp d out=() IFS
-    for sp in "${HOME}"/.local/lib/python*/site-packages; do
+    local sp d out=() sps=() IFS
+    sps=("${HOME}"/.local/lib/python*/site-packages)
+    # The active build venv (gpu_tuned_setup_build_venv) holds the same kind of wheels, so it is ignored too.
+    [[ -n "${VIRTUAL_ENV:-}" ]] && sps+=("${VIRTUAL_ENV}"/lib/python*/site-packages)
+    for sp in "${sps[@]}"; do
         [ -d "${sp}" ] || continue
         out+=("${sp}")
         for d in "${sp}"/*/; do
@@ -2804,11 +2807,16 @@ gpu_tuned_stamp_lib_json() {
 # printed. A check that cannot run (no network, resolver or pip-audit failure) is a failure (H4), not a skip. The report
 # goes to stdout and <log-file>; rc 0 only when the log ends with the verdict "no vulnerable package has a fix available".
 # GPU_TUNED_AUDIT_ALLOW_FILE overrides the allow-file path (the tests use it); GPU_TUNED_PIP_AUDIT_VERSION the pin.
+# Extra arguments after <log-file> go to the resolving `pip install` (e.g. `--find-links <dist-dir> --extra-index-url <url>`
+# for a wheel whose dependencies are sibling wheels in a local directory or on another index). A dependency resolved from a
+# local file, or one pip-audit cannot find on PyPI (a nightly-index version), cannot be audited: it is listed in the log as
+# "not audited (<reason>): name==version", never silently dropped.
 GPU_TUNED_PIP_AUDIT_VERSION="${GPU_TUNED_PIP_AUDIT_VERSION:-2.10.1}"
 
 gpu_tuned_audit_deps() {
-    local wheel="${1:?usage: gpu_tuned_audit_deps <wheel> <log-file>}" log="${2:?usage: gpu_tuned_audit_deps <wheel> <log-file>}"
+    local wheel="${1:?usage: gpu_tuned_audit_deps <wheel> <log-file> [pip-args...]}" log="${2:?usage: gpu_tuned_audit_deps <wheel> <log-file> [pip-args...]}"
     local here work rc=0
+    shift 2
     here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"  # tuned/, where the vendored common.sh sits
     command -v python3 >/dev/null || { echo "ERROR: python3 is needed for the dependency audit." >&2; return 1; }
     work="$(mktemp -d)"
@@ -2818,7 +2826,7 @@ gpu_tuned_audit_deps() {
         python3 -m venv "${work}/venv" \
             && "${work}/venv/bin/python" -m pip install --quiet --disable-pip-version-check "pip-audit==${GPU_TUNED_PIP_AUDIT_VERSION}" \
             && "${work}/venv/bin/python" -m pip install --quiet --disable-pip-version-check --dry-run --ignore-installed \
-                   --report "${work}/report.json" "${wheel}" \
+                   --report "${work}/report.json" "$@" "${wheel}" \
             || { echo "ERROR: could not set up the audit venv or resolve the wheel's dependencies (network?)." >&2; rc=1; }
         if [[ ${rc} -eq 0 ]]; then
             "${work}/venv/bin/python" -I - "${work}/report.json" "${wheel}" > "${work}/reqs.txt" <<'PY' || rc=1
@@ -2832,6 +2840,10 @@ for item in json.load(open(report))["install"]:
     if item.get("is_direct"):
         # A direct-URL dependency (our own tuned torch or flashinfer wheel) has a local version that is not on PyPI.
         sys.stderr.write(f'not audited (direct URL, not on PyPI): {meta["name"]}=={meta["version"]}\n')
+        continue
+    if (item.get("download_info") or {}).get("url", "").startswith("file:"):
+        # Resolved from a local --find-links directory: one of our own sibling wheels.
+        sys.stderr.write(f'not audited (local wheel, not on PyPI): {meta["name"]}=={meta["version"]}\n')
         continue
     sys.stdout.write(f'{meta["name"]}=={meta["version"]}\n')
 PY
@@ -2860,10 +2872,17 @@ try:
             allowed[ident] = reason.strip()
 except FileNotFoundError:
     pass
-deps = json.load(open(audit_path))["dependencies"]
+alldeps = json.load(open(audit_path))["dependencies"]
+deps = [d for d in alldeps if "skip_reason" not in d]
 failed = False
 seen = set()
+for d in alldeps:
+    if "skip_reason" in d:
+        sys.stdout.write(f'not audited ({d["skip_reason"]}): {d["name"]}=={d.get("version", "?")}\n')
 sys.stdout.write(f"audited {len(deps)} packages: " + " ".join(f'{d["name"]}=={d["version"]}' for d in deps) + "\n")
+if not deps:
+    sys.stdout.write("ERROR: every dependency was skipped; the audit has nothing to check.\n")
+    sys.exit(1)
 for dep in deps:
     for vuln in dep.get("vulns", []):
         if (dep["name"], dep["version"], vuln["id"]) in seen:

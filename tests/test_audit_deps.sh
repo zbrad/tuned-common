@@ -48,5 +48,23 @@ cp "${W}/dsrc/localdep-1.0+local/localdep-1.0+local.dist-info/WHEEL" "${W}/dsrc/
 WHEEL="${W}/dout/top-1.0-py3-none-any.whl"
 check "a direct-URL dependency is skipped with a note and the rest passes" 0 'not audited \(direct URL, not on PyPI\): localdep==1.0\+local' "${W}/empty.txt"
 
+# A dependency resolved from a --find-links directory (a sibling wheel of ours) is skipped as a local wheel; the rest is audited.
+mkdir -p "${W}/fsrc/sib-1.0+loc/sib-1.0+loc.dist-info" "${W}/fsrc/top2-1.0/top2-1.0.dist-info" "${W}/fout"
+printf 'Metadata-Version: 2.1\nName: sib\nVersion: 1.0+loc\n' > "${W}/fsrc/sib-1.0+loc/sib-1.0+loc.dist-info/METADATA"
+cp "${W}/dsrc/localdep-1.0+local/localdep-1.0+local.dist-info/WHEEL" "${W}/fsrc/sib-1.0+loc/sib-1.0+loc.dist-info/WHEEL"
+"${W}/packer/bin/python" -m wheel pack "${W}/fsrc/sib-1.0+loc" --dest-dir "${W}/fout" > /dev/null
+printf 'Metadata-Version: 2.1\nName: top2\nVersion: 1.0\nRequires-Dist: sib==1.0+loc\nRequires-Dist: Jinja2==3.1.6\n' > "${W}/fsrc/top2-1.0/top2-1.0.dist-info/METADATA"
+cp "${W}/dsrc/localdep-1.0+local/localdep-1.0+local.dist-info/WHEEL" "${W}/fsrc/top2-1.0/top2-1.0.dist-info/WHEEL"
+"${W}/packer/bin/python" -m wheel pack "${W}/fsrc/top2-1.0" --dest-dir "${W}/fout" > /dev/null
+true
+WHEEL="${W}/fout/top2-1.0-py3-none-any.whl"
+out="$(GPU_TUNED_AUDIT_ALLOW_FILE="${W}/empty.txt" gpu_tuned_audit_deps "${WHEEL}" "${W}/log.txt" --find-links "${W}/fout" 2>&1)"; rc=$?
+[[ ${rc} -eq 0 ]] && grep -qE 'not audited \(local wheel, not on PyPI\): sib==1\.0\+loc' <<< "${out}" \
+    && { PASS=$((PASS + 1)); echo "ok:   a --find-links sibling wheel is skipped as local and the rest passes"; } \
+    || { FAIL=$((FAIL + 1)); echo "FAIL: --find-links sibling (rc=${rc})"; sed 's/^/        /' <<< "${out}" | head -12; }
+out="$(GPU_TUNED_AUDIT_ALLOW_FILE="${W}/empty.txt" gpu_tuned_audit_deps "${WHEEL}" "${W}/log.txt" 2>&1)"; rc=$?
+[[ ${rc} -ne 0 ]] && { PASS=$((PASS + 1)); echo "ok:   without --find-links the sibling is unresolvable and the audit fails closed"; } \
+    || { FAIL=$((FAIL + 1)); echo "FAIL: audit passed although sib is not resolvable"; }
+
 echo "${PASS} passed, ${FAIL} failed"
 [[ ${FAIL} -eq 0 ]]
