@@ -203,22 +203,31 @@ chk_C5() {
     local h; h="$(nc_grep '\$\(nproc|\$\{?NPROC|nproc\)' "${OWN[@]}" | grep -v gpu_tuned_jobs)"
     [[ -z "${h}" ]] && pass "no bare nproc default" || fail "$(echo "${h}" | wc -l) bare nproc use(s): $(echo "${h}" | first 3)"
 }
+# C8 and C9 look at every script that builds Python packages: build.sh, wheel.sh and the *wheel*.sh scripts.
+py_build_scripts() { ls "${T}"/build.sh "${T}"/wheel.sh "${T}"/*wheel*.sh 2>/dev/null | sort -u; }
 chk_C8() {
-    local b="${T}/build.sh" h
-    [[ -f "${b}" ]] || { unk "no tuned/build.sh"; return; }
-    [[ -n "$(nc_grep 'pip3?[[:space:]]+install|-m[[:space:]]+pip[[:space:]]+install' "${b}")" ]] \
-        || { pass "build.sh installs no Python packages, so there is no build setuptools"; return; }
-    h="$(nc_grep 'gpu_tuned_install_setuptools' "${b}")"
-    [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "build.sh runs pip install but never gpu_tuned_install_setuptools (build venv keeps upstream's capped setuptools)"
+    local f bad="" good="" n=0
+    [[ -f "${T}/build.sh" ]] || { unk "no tuned/build.sh"; return; }
+    while IFS= read -r f; do
+        [[ -n "$(nc_grep 'pip3?[[:space:]]+(install|wheel)|-m[[:space:]]+pip[[:space:]]+(install|wheel)' "${f}")" ]] || continue
+        n=$((n + 1))
+        [[ -n "$(nc_grep 'gpu_tuned_install_setuptools' "${f}")" ]] && good="${good} $(basename "${f}")" || bad="${bad} $(basename "${f}")"
+    done < <(py_build_scripts)
+    [[ "${n}" -gt 0 ]] || { pass "no build script installs Python packages, so there is no build setuptools"; return; }
+    [[ -z "${bad}" ]] && pass "gpu_tuned_install_setuptools in:${good}" \
+        || fail "pip install without gpu_tuned_install_setuptools (the build venv keeps upstream's capped setuptools) in:${bad}"
 }
 chk_C9() {
-    local b="${T}/build.sh" h
-    [[ -f "${b}" ]] || { unk "no tuned/build.sh"; return; }
-    h="$(nc_grep 'gpu_tuned_setup_build_venv' "${b}")"
-    [[ -n "${h}" ]] && { pass "$(echo "${h}" | first 2)"; return; }
-    [[ -n "$(nc_grep 'venv[[:space:]]+|-m[[:space:]]+venv|bin/activate|pip3?[[:space:]]+install' "${b}")" ]] \
-        && fail "build.sh makes or uses a Python venv without gpu_tuned_setup_build_venv" \
-        || pass "build.sh uses no Python venv"
+    local f bad="" good="" n=0
+    [[ -f "${T}/build.sh" ]] || { unk "no tuned/build.sh"; return; }
+    while IFS= read -r f; do
+        [[ -n "$(nc_grep 'venv[[:space:]]+|-m[[:space:]]+venv|bin/activate|pip3?[[:space:]]+(install|wheel)' "${f}")" ]] || continue
+        n=$((n + 1))
+        [[ -n "$(nc_grep 'gpu_tuned_setup_build_venv' "${f}")" ]] && good="${good} $(basename "${f}")" || bad="${bad} $(basename "${f}")"
+    done < <(py_build_scripts)
+    [[ "${n}" -gt 0 ]] || { pass "no build script uses a Python venv"; return; }
+    [[ -z "${bad}" ]] && pass "gpu_tuned_setup_build_venv in:${good}" \
+        || fail "makes or uses a Python venv without gpu_tuned_setup_build_venv in:${bad}"
 }
 chk_E2() {
     [[ "${ONLINE}" -eq 1 ]] || { unk "needs gh (rerun with --online)"; return; }
