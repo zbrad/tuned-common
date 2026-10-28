@@ -11,7 +11,11 @@ skip() { SKIPPED=$((SKIPPED+1)); echo "SKIP - $1 ($2)"; }
 check() {
     local name="$1" want_rc="$2" err_re="$3" out_re="$4" script="$5" out err rc
     out="$(mktemp)"; err="$(mktemp)"
-    bash -c "${script}" >"${out}" 2>"${err}"; rc=$?
+    # The toolkit tests run without the host's own CUDA directories (/etc/profile.d/nv_paths.sh) on PATH, which the
+    # toolkit PATH gate would report; the other tests keep the host PATH (some need its nvcc).
+    local p="${PATH}"
+    [[ "${name}" =~ ^(select|verify|load)_toolkit ]] && p="$(tr ':' '\n' <<< "${PATH}" | grep -v '/cuda[^:]*/bin' | paste -sd:)"
+    PATH="${p}" bash -c "${script}" >"${out}" 2>"${err}"; rc=$?
     local ok=1
     [[ "${rc}" -eq "${want_rc}" ]] || ok=0
     if [[ "${err_re}" == "-" ]]; then [[ ! -s "${err}" ]] || ok=0; else grep -qE "${err_re}" "${err}" || ok=0; fi
@@ -1014,7 +1018,7 @@ check "load_toolkit: no id and no toolkit files is an error" 1 "none defined" "-
 check "toolkit files: every toolkit defines TOOLKIT_NCCL_VERSION (a version, or none)" 0 "-" "^ok$" \
   "D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; bad=0; for f in \"\$D\"/toolkits/*.env; do b=\$(basename \$f .env); case \$b in *-cu*) continue;; esac; grep -qE '^TOOLKIT_NCCL_VERSION=\"[^\"]+\"' \$f || { echo \"missing in \$f\" >&2; bad=1; }; done; [ \$bad -eq 0 ] && echo ok"
 check "verify_toolkit: TOOLKIT_NCCL_VERSION=none skips the system NCCL check and says so" 0 "-" "no system NCCL" \
-  "${pre}; mkdir -p '${tk}/n/bin'; printf '#!/bin/sh\\necho \"Cuda compilation tools, release 99.9, V99.9.1\"\\n' > '${tk}/n/bin/nvcc'; chmod +x '${tk}/n/bin/nvcc'; TOOLKIT_ID=cu999 TOOLKIT_CUDA_HOME='${tk}/n' CUDA_HOME='${tk}/n' TOOLKIT_NVCC_RELEASE=99.9 TOOLKIT_NCCL_VERSION=none gpu_tuned_verify_toolkit"
+  "${pre}; mkdir -p '${tk}/n/bin'; printf '#!/bin/sh\\necho \"Cuda compilation tools, release 99.9, V99.9.1\"\\n' > '${tk}/n/bin/nvcc'; chmod +x '${tk}/n/bin/nvcc'; TOOLKIT_ID=cu999 TOOLKIT_CUDA_HOME='${tk}/n' CUDA_HOME='${tk}/n' TOOLKIT_NVCC_RELEASE=99.9 TOOLKIT_NCCL_VERSION=none PATH='${tk}/n/bin':\$PATH gpu_tuned_verify_toolkit"
 # bundled CUDA flavour (dpkg stubbed on PATH)
 mkdir -p "${tk}/stubs"
 cat > "${tk}/stubs/dpkg" <<'EOF'
@@ -1075,6 +1079,15 @@ check "verify_toolkit: an nvcc release mismatch is rejected" 1 "reports release 
   "${lt} gb10 cu999; PATH='${tk}/fakebin':\$PATH gpu_tuned_verify_toolkit"
 check "verify_toolkit: a foreign libnccl2 is rejected" 1 "libnccl2 is '2\\.0-9'" "-" \
   "${lt} rtx40 cu999; FAKE_NCCL=2.0-9 PATH='${tk}/fakebin':\$PATH gpu_tuned_verify_toolkit"
+mkdir -p "${tk}/other/bin"; printf '#!/bin/sh\necho x\n' > "${tk}/other/bin/nvcc"; chmod +x "${tk}/other/bin/nvcc"
+check "verify_toolkit: the first nvcc on PATH outside CUDA_HOME is rejected" 1 "first nvcc on PATH is .*other/bin/nvcc" "-" \
+  "${lt} rtx40 cu999; PATH='${tk}/other/bin':\$PATH; gpu_tuned_check_toolkit_path"
+check "verify_toolkit: another toolkit's nvcc further down PATH is a warning" 0 "shadowed by .*cuda-99.9/bin.*other/bin" "-" \
+  "${lt} rtx40 cu999; PATH=\"\$PATH:${tk}/other/bin\"; gpu_tuned_check_toolkit_path"
+check "verify_toolkit: GPU_TUNED_STRICT_TOOLKIT_PATH=1 makes that warning a failure" 1 "shadowed by" "-" \
+  "${lt} rtx40 cu999; PATH=\"\$PATH:${tk}/other/bin\"; GPU_TUNED_STRICT_TOOLKIT_PATH=1 gpu_tuned_check_toolkit_path"
+check "verify_toolkit: a PATH with only CUDA_HOME's nvcc is silent" 0 "-" "-" \
+  "${lt} rtx40 cu999; gpu_tuned_check_toolkit_path"
 check "verify_toolkit: refuses to run before a toolkit is loaded" 1 "no toolkit loaded" "-" \
   "${pre}; gpu_tuned_verify_toolkit"
 printf '%s\n' "	libcudart.so.99 => ${tk}/cuda-99.9/lib/libcudart.so.99 (0x1)" "	libc.so.6 => /lib/libc.so.6 (0x2)" > "${tk}/ldd.good"
