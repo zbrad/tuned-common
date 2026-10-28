@@ -1230,5 +1230,23 @@ check "release_marker_clear: removes a marker so a failing run leaves none" 0 "-
   "${pre}; ${inrp}; ${READY} >/dev/null; gpu_tuned_release_marker_clear ${RM}; test ! -f ${RM}"
 rm -rf "${rp}"
 
+# --- gpu_tuned_assert_versioned_runpath: real shared objects with a RUNPATH ---
+if command -v cc >/dev/null 2>&1; then
+    rpd="$(mktemp -d)"; echo 'int f(void){return 0;}' > "${rpd}/a.c"
+    cc -shared -fPIC -Wl,--enable-new-dtags -Wl,-rpath,/usr/local/cuda/lib64 -o "${rpd}/bad.so" "${rpd}/a.c"
+    cc -shared -fPIC -Wl,--enable-new-dtags -Wl,-rpath,/usr/local/cuda-13/lib64 -o "${rpd}/bad13.so" "${rpd}/a.c"
+    cc -shared -fPIC -Wl,--enable-new-dtags -Wl,-rpath,/usr/local/cuda-13.4/lib64 -o "${rpd}/good.so" "${rpd}/a.c"
+    cc -shared -fPIC -o "${rpd}/none.so" "${rpd}/a.c"
+    check "assert_versioned_runpath: a toolkit-versioned RUNPATH passes" 0 "-" "-" \
+      "${pre}; gpu_tuned_assert_versioned_runpath '${rpd}/good.so' '${rpd}/none.so'"
+    check "assert_versioned_runpath: the unversioned /usr/local/cuda is rejected" 1 "bad.so has an unversioned CUDA path in its RUNPATH: /usr/local/cuda/lib64" "-" \
+      "${pre}; gpu_tuned_assert_versioned_runpath '${rpd}/bad.so'"
+    check "assert_versioned_runpath: /usr/local/cuda-<major> is rejected and every file is checked" 1 "bad13.so has an unversioned CUDA path" "-" \
+      "${pre}; gpu_tuned_assert_versioned_runpath '${rpd}/bad.so' '${rpd}/bad13.so'"
+    rm -rf "${rpd}"
+else
+    skip "assert_versioned_runpath" "no C compiler"
+fi
+
 echo; echo "passed=${PASS} failed=${FAIL} skipped=${SKIPPED}"
 [[ "${FAIL}" -eq 0 ]]
