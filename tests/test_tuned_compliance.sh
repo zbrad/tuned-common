@@ -138,6 +138,16 @@ run 'C9 a wheel script that runs pip wheel without the setup function fails' C9 
 run 'C9 a wheel script that sets up the build venv passes' C9 PASS 'printf "%s\n" "gpu_tuned_setup_build_venv v r" "pip wheel x" > tuned/wheel.sh'
 run 'C9 a wheel script that only activates the build.sh venv is not a venv maker' C9 PASS 'printf "%s\n" "source v/bin/activate" "pip wheel x" > tuned/wheel.sh'
 run 'C8 a *common* library with pip install is not a build script' C8 PASS 'echo "pip install x" > tuned/raft_wheel_common.sh'
+run 'A8 passes'                           A8 PASS 'true'
+run 'A8 env.sh that never verifies the toolkit fails' A8 FAIL "printf '%s\\n' 'gpu_tuned_load_repo_env' > tuned/env.sh"
+run 'A8 vendored verify_toolkit without the PATH gate fails' A8 FAIL "sed -i '/^gpu_tuned_verify_toolkit() {/,/^}/ s/gpu_tuned_check_toolkit_path//' tuned/common.sh"
+run 'H11 passes'                          H11 PASS 'true'
+run 'H11 vendored install_setuptools without the resolution check fails' H11 FAIL "sed -i '/^gpu_tuned_install_setuptools() {/,/^}/ s/^    gpu_tuned_check_venv_resolution\$//' tuned/common.sh"
+run 'H12 passes with no requirements-build file' H12 PASS 'true'
+run 'H12 requirements without a lock fails' H12 FAIL 'echo wheel > tuned/requirements-build.txt'
+run 'H12 locked but installed unconstrained fails' H12 FAIL 'echo wheel > tuned/requirements-build.txt; printf "# l\nwheel==1.0\n" > tuned/requirements-build.lock; echo "pip install -r tuned/requirements-build.txt" >> tuned/build.sh'
+run 'H12 a lock line that is not name==version fails' H12 FAIL 'echo wheel > tuned/requirements-build.txt; printf "wheel>=1\n" > tuned/requirements-build.lock; echo "gpu_tuned_pip_install_requirements x" >> tuned/build.sh'
+run 'H12 locked and installed through the helper passes' H12 PASS 'echo wheel > tuned/requirements-build.txt; printf "# l\nwheel==1.0\n" > tuned/requirements-build.lock; echo "gpu_tuned_pip_install_requirements tuned/requirements-build.txt" >> tuned/build.sh'
 run 'H10 is N/A on a native-only repo' H10 N/A 'true'
 run 'H10 wheel script without the venv check fails' H10 FAIL 'echo "# w" > tuned/wheel.sh'
 run 'H10 wheel script that checks the venv passes' H10 PASS 'echo "gpu_tuned_check_venv_setuptools \"\$V\"" > tuned/wheel.sh'

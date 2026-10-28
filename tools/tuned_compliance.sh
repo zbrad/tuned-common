@@ -279,6 +279,38 @@ chk_H10() {
     local h; h="$(nc_grep 'gpu_tuned_check_venv_setuptools' "${T}/package.sh" "${T}"/*wheel*.sh)"
     [[ -n "${h}" ]] && pass "$(echo "${h}" | first 2)" || fail "no gpu_tuned_check_venv_setuptools call in package.sh or the wheel script (a wheel can ship from a build venv with an old setuptools)"
 }
+chk_A8() {
+    local c="${T}/common.sh"
+    [[ -f "${T}/env.sh" && -f "${c}" ]] || { unk "no tuned/env.sh or tuned/common.sh"; return; }
+    [[ -n "$(nc_grep 'gpu_tuned_select_toolkit|gpu_tuned_verify_toolkit' "${T}/env.sh")" ]] \
+        || { fail "env.sh neither selects nor verifies the toolkit, so the PATH gate never runs"; return; }
+    awk '/^gpu_tuned_verify_toolkit\(\)/,/^}/' "${c}" | grep -q 'gpu_tuned_check_toolkit_path' \
+        && pass "env.sh verifies the toolkit and the vendored gpu_tuned_verify_toolkit runs the PATH gate" \
+        || fail "the vendored common.sh's gpu_tuned_verify_toolkit does not call gpu_tuned_check_toolkit_path (sync tuned-common)"
+}
+chk_H11() {
+    local c="${T}/common.sh"
+    [[ -f "${c}" ]] || { unk "no tuned/common.sh"; return; }
+    [[ -n "$(py_build_scripts)" ]] || { pass "no build script makes a Python build venv"; return; }
+    awk '/^gpu_tuned_install_setuptools\(\)/,/^}/' "${c}" | grep -q 'gpu_tuned_check_venv_resolution' \
+        && pass "the vendored gpu_tuned_install_setuptools runs the venv tool-resolution check" \
+        || fail "the vendored common.sh's gpu_tuned_install_setuptools does not call gpu_tuned_check_venv_resolution (sync tuned-common)"
+}
+chk_H12() {
+    local f lock bad="" n=0 l
+    for f in "${T}"/requirements-build*.txt; do
+        [[ -f "${f}" ]] || continue
+        n=$((n + 1)); lock="${f%.txt}.lock"
+        if [[ ! -f "${lock}" ]]; then bad="${bad} $(basename "${f}"):no-lock"; continue; fi
+        l="$(grep -vE '^[[:space:]]*(#|$)' "${lock}" | grep -vcE '^[A-Za-z0-9_.-]+==[^[:space:]]+$' || true)"
+        [[ "${l}" == 0 ]] || bad="${bad} $(basename "${lock}"):${l}-line(s)-not-name==version"
+    done
+    [[ "${n}" -gt 0 ]] || { pass "no tuned/requirements-build*.txt, so nothing to lock"; return; }
+    [[ -z "${bad}" ]] || { fail "lock problem:${bad}"; return; }
+    [[ -n "$(nc_grep 'gpu_tuned_pip_install_requirements' "${OWN[@]}")" ]] \
+        && pass "${n} requirements file(s) locked and installed through gpu_tuned_pip_install_requirements" \
+        || fail "the requirements are locked but no script installs them through gpu_tuned_pip_install_requirements"
+}
 chk_I1() {
     [[ -f "${T}/release.sh" ]] || { unk "no release.sh"; return; }
     local miss="" k
@@ -319,10 +351,10 @@ chk_J5() {
 }
 
 # ---- the requirement register: ID | kinds it applies to (any, native, wheel) ---------------------
-REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any B1:native B2:wheel B3:native B4:any
+REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any A8:any B1:native B2:wheel B3:native B4:any
 C1:any C2:native C3:native C4:native C5:any C6:native C7:native C8:any C9:any D1:native D2:native D3:native
 E1:wheel E2:native E3:any E4:any E5:any E6:any E7:any E8:any F1:native F2:native F3:native F4:wheel
-G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native H9:wheel H10:wheel
+G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native H9:wheel H10:wheel H11:any H12:any
 I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any J5:any"
 
 applies() {  # applies <kind-needed>
