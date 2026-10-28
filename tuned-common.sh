@@ -2973,6 +2973,63 @@ gpu_tuned_install_setuptools() {
     printf '%s\n%s\n' "${GPU_TUNED_SETUPTOOLS_MIN}" "${have}" | sort -V -C \
         || { echo "ERROR: setuptools ${have} is older than the minimum ${GPU_TUNED_SETUPTOOLS_MIN}." >&2; return 1; }
     echo "setuptools ${have} (current release; minimum ${GPU_TUNED_SETUPTOOLS_MIN})"
+    gpu_tuned_check_venv_resolution
+}
+
+# gpu_tuned_check_venv_resolution -- with a build venv active ($VIRTUAL_ENV set), every tool the venv provides
+# (python3, pip, and cmake, ninja, swig when installed in it) must be the one the shell resolves, i.e. the venv's bin comes
+# first. A host or another project's venv ahead of it (an inherited PATH, a stale hash) would build with the wrong cmake or
+# python while the log looks right. Names each offender and fails (rc 1); with no venv active it does nothing (H11).
+gpu_tuned_check_venv_resolution() {
+    local venv="${VIRTUAL_ENV:-}" tool want got bad=0
+    [[ -n "${venv}" ]] || return 0
+    hash -r 2>/dev/null || true
+    for tool in python3 pip cmake ninja swig; do
+        want="${venv}/bin/${tool}"
+        [[ -e "${want}" ]] || continue
+        got="$(command -v "${tool}" || true)"
+        if [[ "${got}" != "${want}" ]]; then
+            echo "ERROR: ${tool} resolves to ${got:-nothing}, not the build venv's ${want}." >&2
+            bad=1
+        fi
+    done
+    [[ "${bad}" -eq 0 ]] || { echo "  The build venv's bin must come first on PATH (is another venv or a host tool ahead of it?)." >&2; return 1; }
+    echo "build venv tools resolve to ${venv}/bin"
+}
+
+# gpu_tuned_freeze_requirements <requirements-file> -- write <requirements-file minus .txt>.lock from the ACTIVE build venv:
+# every installed package as name==version (pip and setuptools left out: pip is the venv's bootstrap and setuptools is set by
+# gpu_tuned_install_setuptools to the current release, C8). The lock is what a build that passed was run with; commit it, and
+# builds install under it (gpu_tuned_pip_install_requirements), so a dependency does not move between releases unnoticed. It
+# is specific to the interpreter and platform that made it, and the header says which (H12).
+gpu_tuned_freeze_requirements() {
+    local req="${1:?usage: gpu_tuned_freeze_requirements <requirements-file>}" lock
+    lock="${req%.txt}.lock"
+    [[ -n "${VIRTUAL_ENV:-}" ]] || { echo "ERROR: gpu_tuned_freeze_requirements: no build venv is active." >&2; return 1; }
+    {
+        echo "# Locked by gpu_tuned_freeze_requirements from the build venv that passed, for ${req##*/}."
+        echo "# $(python3 -c 'import sys; print("Python", sys.version.split()[0])'), $(uname -m)."
+        echo "# Regenerate: build once with GPU_TUNED_UNLOCKED=1, run gpu_tuned_freeze_requirements, review the diff."
+        python3 -m pip freeze --disable-pip-version-check 2>/dev/null | grep -E '^[A-Za-z0-9_.-]+==' \
+            | grep -viE '^(pip|setuptools)==' | sort -f
+    } > "${lock}" || return 1
+    echo "locked $(grep -c '==' "${lock}") packages in ${lock}"
+}
+
+# gpu_tuned_pip_install_requirements <requirements-file> [pip-args...] -- `pip install -r` the file under its lock
+# (<file minus .txt>.lock, as a constraints file) when there is one, so the versions are the locked ones. No lock, or
+# GPU_TUNED_UNLOCKED=1 (to regenerate it), installs unconstrained and says so (H12).
+gpu_tuned_pip_install_requirements() {
+    local req="${1:?usage: gpu_tuned_pip_install_requirements <requirements-file> [pip-args...]}" lock
+    shift
+    lock="${req%.txt}.lock"
+    if [[ -f "${lock}" && "${GPU_TUNED_UNLOCKED:-}" != "1" ]]; then
+        echo "installing ${req##*/} under ${lock##*/}"
+        python3 -m pip install -r "${req}" -c "${lock}" "$@"
+    else
+        echo "installing ${req##*/} UNLOCKED (no ${lock##*/}, or GPU_TUNED_UNLOCKED=1)"
+        python3 -m pip install -r "${req}" "$@"
+    fi
 }
 
 # gpu_tuned_setup_build_venv <venv-dir> <repo-root> -- the one way a build.sh gets its Python build venv (C9). It honours

@@ -320,6 +320,31 @@ check "verify_venv: a FetchContent sub-build cache is not a copied build dir" 0 
 printf 'CMAKE_HOME_DIRECTORY:INTERNAL=/elsewhere\n' > "${vv}/repo3/build/CMakeCache.txt"
 check "verify_venv: a top-level build cache from another repo is still refused" 1 "looks copied from another repo" "-" \
   "set -euo pipefail; ${pre}; gpu_tuned_verify_venv '${vv}/venv' '${vv}/repo3'"
+# H11: the venv's tools must be the ones the shell resolves
+mkdir -p "${vv}/hostbin"
+printf '#!/bin/sh\nexit 0\n' > "${vv}/hostbin/cmake"; chmod +x "${vv}/hostbin/cmake"
+printf '#!/bin/sh\nexit 0\n' > "${vv}/venv/bin/cmake"; chmod +x "${vv}/venv/bin/cmake"
+check "check_venv_resolution: no active venv does nothing" 0 "-" "-" \
+  "${pre}; unset VIRTUAL_ENV; gpu_tuned_check_venv_resolution"
+check "check_venv_resolution: the venv's tools first passes" 0 "-" "resolve to ${vv}/venv/bin" \
+  "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/venv/bin':\"\$PATH\"; gpu_tuned_check_venv_resolution"
+check "check_venv_resolution: a host cmake ahead of the venv's is named and refused" 1 "cmake resolves to ${vv}/hostbin/cmake" "-" \
+  "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/hostbin':'${vv}/venv/bin':\"\$PATH\"; gpu_tuned_check_venv_resolution"
+# H12: lock files
+printf 'wheel\n' > "${vv}/req.txt"
+check "freeze_requirements: writes name==version lines without pip and setuptools" 0 "-" "locked [0-9]+ packages" \
+  "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/venv/bin':\"\$PATH\"; gpu_tuned_freeze_requirements '${vv}/req.txt'"
+check "freeze_requirements: the lock names no pip or setuptools" 0 "-" "^0$" "grep -ciE '^(pip|setuptools)==' '${vv}/req.lock' || true"
+check "freeze_requirements: no active venv is refused" 1 "no build venv is active" "-" \
+  "${pre}; unset VIRTUAL_ENV; gpu_tuned_freeze_requirements '${vv}/req.txt'"
+printf '' > "${vv}/none.txt"
+check "pip_install_requirements: without a lock it says it installs UNLOCKED" 0 "-" "installing none.txt UNLOCKED" \
+  "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/venv/bin':\"\$PATH\"; o=\$(gpu_tuned_pip_install_requirements '${vv}/none.txt' --quiet --no-index 2>&1); echo \"\${o}\" | head -1"
+printf '# lock\n' > "${vv}/none.lock"
+check "pip_install_requirements: with a lock it says it installs under it" 0 "-" "installing none.txt under none.lock" \
+  "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/venv/bin':\"\$PATH\"; gpu_tuned_pip_install_requirements '${vv}/none.txt' --quiet --no-index 2>&1 | head -1"
+check "pip_install_requirements: GPU_TUNED_UNLOCKED=1 ignores the lock" 0 "-" "UNLOCKED" \
+  "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/venv/bin':\"\$PATH\"; GPU_TUNED_UNLOCKED=1 gpu_tuned_pip_install_requirements '${vv}/none.txt' --quiet --no-index 2>&1 | head -1"
 rm -rf "${vv}"
 rm -rf "${nt}"
 check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \
