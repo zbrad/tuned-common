@@ -1705,7 +1705,8 @@ gpu_tuned_verify_venv() {
             echo "ERROR: gpu_tuned_verify_venv: ${cmake_cache}'s CMAKE_HOME_DIRECTORY (${cached_home}) does not match this repo (${repo_root}) -- this build/ dir looks copied from another repo. Delete it: rm -rf ${repo_root}/build" >&2
             return 1
         fi
-    done < <(find "${repo_root}/build" -name 'CMakeCache.txt' 2>/dev/null || true)
+    # _deps: a FetchContent sub-build's cache names its own directory as the home directory, which is correct.
+    done < <(find "${repo_root}/build" -name 'CMakeCache.txt' -not -path '*/_deps/*' 2>/dev/null || true)
 
     return 0
 }

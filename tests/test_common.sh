@@ -313,6 +313,13 @@ mkdir -p "${sp}/leftover-1.0.dist-info"
 printf 'Metadata-Version: 2.1\nName: leftover\nVersion: 1.0\n' > "${sp}/leftover-1.0.dist-info/METADATA"
 check "verify_venv: a real version mismatch is still refused" 1 "does not match" "-" \
   "set -euo pipefail; ${pre}; gpu_tuned_verify_venv '${vv}/venv' '${vv}/repo2'"
+mkdir -p "${vv}/repo3/build/_deps/gt-subbuild"
+printf 'CMAKE_HOME_DIRECTORY:INTERNAL=%s/repo3/build/_deps/gt-subbuild\n' "${vv}" > "${vv}/repo3/build/_deps/gt-subbuild/CMakeCache.txt"
+check "verify_venv: a FetchContent sub-build cache is not a copied build dir" 0 "-" "^OK$" \
+  "set -euo pipefail; ${pre}; gpu_tuned_verify_venv '${vv}/venv' '${vv}/repo3' >/dev/null; echo OK"
+printf 'CMAKE_HOME_DIRECTORY:INTERNAL=/elsewhere\n' > "${vv}/repo3/build/CMakeCache.txt"
+check "verify_venv: a top-level build cache from another repo is still refused" 1 "looks copied from another repo" "-" \
+  "set -euo pipefail; ${pre}; gpu_tuned_verify_venv '${vv}/venv' '${vv}/repo3'"
 rm -rf "${vv}"
 rm -rf "${nt}"
 check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \
