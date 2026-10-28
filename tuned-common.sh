@@ -2450,7 +2450,9 @@ gpu_tuned_verify_no_pip_cmake_deps() {
             [ -n "${p}" ] || continue
             case "${line#*=}" in "${p}"|"${p}"/*) echo "ERROR: CMake resolved ${line%%:*} from a pip wheel: ${line#*=}" >&2; bad=1; break ;; esac
         done < <(printf '%s\n' "${ign}" | tr ';' '\n')
-    done < <(grep -E '^[A-Za-z0-9_]+_(DIR|ROOT):[A-Z]+=' "${cache}" | grep -vE '^CMAKE_')
+    # SWIG_DIR is the data directory of the code generator (the build venv's swig wheel, pinned in the requirements):
+    # nothing from it is linked or shipped, so it is not a dependency of the package.
+    done < <(grep -E '^[A-Za-z0-9_]+_(DIR|ROOT):[A-Z]+=' "${cache}" | grep -vE '^(CMAKE_|SWIG_DIR:)')
     if grep -qE '^nvtx3_DIR:[A-Z]+=' "${cache}" && [ "${bad}" -ne 0 ] && gpu_tuned__nvtx3_from_pip "${cache}" "${ign}"; then
         echo "  nvtx3: this is NOT the tuned copy. The fleet fetches nvtx3 at the pinned rapids-cmake, builds and tests against" >&2
         echo "  that copy and ships it in the package. The wheel's copy is unpinned, untested here and unaligned with the rest of" >&2

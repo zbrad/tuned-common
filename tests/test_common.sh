@@ -669,6 +669,8 @@ check "verify_no_pip_cmake_deps: an nvtx3 from a wheel says it is not the tuned 
 check "warn_pip_cmake_packages: a librmm wheel gets the nvtx3 not-tuned note" 0 "NOT the tuned copy" "-" "HOME='${ip}/home' VIRTUAL_ENV='' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\""
 check "verify_no_pip_cmake_deps: only the pip entry is reported" 0 "-" "^1$" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/bad.cache'\" 2>&1 | grep -c 'resolved'"
 check "verify_no_pip_cmake_deps: a clean cache passes" 0 "-" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/good.cache'\""
+printf 'SWIG_DIR:PATH=%s/home/.local/lib/python3.14/site-packages/pkgA/lib64/cmake/swig\n' "${ip}" > "${ip}/swig.cache"
+check "verify_no_pip_cmake_deps: SWIG_DIR in the build venv's swig wheel is not a package dependency" 0 "-" "-" "HOME='${ip}/home' bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/swig.cache'\""
 check "verify_no_pip_cmake_deps: a missing cache file fails" 1 "no such cache file" "-" "bash -c \"source '${LIB}'; gpu_tuned_verify_no_pip_cmake_deps '${ip}/none'\""
 check "warn_pip_cmake_packages: nothing installed prints nothing" 0 "-" "^\\[\\]$" "echo \"[\$(HOME='${ip}/empty' VIRTUAL_ENV='' bash -c \"source '${LIB}'; gpu_tuned_warn_pip_cmake_packages\" 2>&1)]\""
 rm -rf "${ip}"
