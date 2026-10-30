@@ -129,8 +129,14 @@ branches, sets `current` as the GitHub default, protects it (pull request requir
 `upstream_mirror` and `tuned-builds` against force push and deletion (admins included, no PR
 requirement, so the mirror's fast-forward sync and our pushes still work), and sets `origin/HEAD`. The old
 branch is deleted only if contained in `upstream_mirror`, no PR is open, and `current` is already
-the GitHub default. Done so far: sqlite (2026-10-21; its GitHub default was `tuned-builds`, not
-the mirror). A clone's old default needs `git remote set-head origin -a`. Verified 2026-10-21 on sqlite (empirical): with that protection on, `git push --force` and
+the GitHub default. Done so far (checked 2026-10-30 with `gh api`: GitHub default `current`, pull
+request required on it; date is the quarantine commit's): sqlite (2026-10-21; its GitHub default was
+`tuned-builds`, not the mirror), llama.cpp, ollama, flash-attention, flashinfer, hermes-agent,
+NeMo-Agent-Toolkit, pytorch, flash-attention-vllm (all 2026-10-22 UTC), vllm (2026-10-30; its
+default had been switched to `tuned-builds` with no `current`, and was moved back because a sync
+without `--branch` targets the GitHub default, and `tuned-builds` has no pull-request requirement).
+Not migrated: cuvs, raft, faiss (default `main`), nccl (`master`), open-webui (`main`); their default
+branches had no agent rule files at default-loaded paths on 2026-10-30. A clone's old default needs `git remote set-head origin -a`. Verified 2026-10-21 on sqlite (empirical): with that protection on, `git push --force` and
 `--delete` on `upstream_mirror` and a force push to `tuned-builds` were rejected (GH006), and
 `upstream-sync.sh sync-default` still fast-forwarded the mirror via `gh repo sync` (99774ca002 ->
 ac429ff804). Verified 2026-10-22 on sqlite (empirical): updating the protected `current` by pull request works.
