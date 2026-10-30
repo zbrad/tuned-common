@@ -43,7 +43,7 @@
 #   --allow-counter-release-tag
 #                           override the counter-label refusal (see the gates)
 #
-# Exit status: 0 ok, 1 usage, 2 preflight, 3 merge conflict (merge left in progress),
+# Exit status: 0 ok, 1 usage, 2 preflight (or git refused to start the merge), 3 merge conflict (merge left in progress),
 # 4 a gate refused the target, 5 a fork marker was lost (merge staged, NOT committed).
 set -euo pipefail
 
@@ -305,7 +305,7 @@ Assisted-by: Claude"
 }
 
 do_merge() {
-    local pre backup n lost_markers m before after rev
+    local pre backup n merge_out lost_markers m before after rev
     local rc=0
     do_plan || rc=$?
     [[ "${rc}" -eq 0 ]] || exit "${rc}"
@@ -317,7 +317,16 @@ do_merge() {
     while git rev-parse -q --verify "refs/heads/${backup}" >/dev/null; do n=$((n+1)); backup="${BRANCH}-backup-$(date -u +%F)-${n}"; done
     git branch "${backup}" "${pre}"
     echo "== merge   (backup branch: ${backup} at $(short "${pre}"))"
-    if ! git merge --no-ff --no-commit "${TARGET_REF}" >/dev/null 2>&1; then
+    if ! merge_out="$(git merge --no-ff --no-commit "${TARGET_REF}" 2>&1)"; then
+        if [[ ! -f "$(git rev-parse --absolute-git-dir)/MERGE_HEAD" ]]; then
+            # git refused before merging anything (e.g. untracked files the merge would overwrite)
+            git branch -q -d "${backup}"
+            echo "  MERGE NOT STARTED: git refused, nothing changed (backup branch removed). git said:" >&2
+            sed 's/^/    /' <<< "${merge_out}" | head -n 40 >&2
+            n="$(wc -l <<< "${merge_out}")"
+            [[ "${n}" -le 40 ]] || echo "    ... ($((n - 40)) more line(s))" >&2
+            exit 2
+        fi
         echo "  MERGE CONFLICT; the merge is left in progress. Conflicted files:" >&2
         git diff --name-only --diff-filter=U | sed 's/^/    /' >&2
         echo "  resolve and 'git commit', or undo with: git merge --abort" >&2

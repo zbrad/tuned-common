@@ -181,7 +181,7 @@ whether protection also blocks it.
 |---|---|
 | 0 | ok (or nothing to do) |
 | 1 | usage, or not a fork |
-| 2 | preflight: dirty tracked tree, not on the tuned branch, or a merge already in progress; for `sync-default`: `gh` missing or not authenticated, or the checked-out branch is the default branch |
+| 2 | preflight: dirty tracked tree, not on the tuned branch, or a merge already in progress; for `sync-default`: `gh` missing or not authenticated, or the checked-out branch is the default branch; for `merge --apply`: git refused to start the merge (e.g. untracked files it would overwrite). Nothing is changed, git's message is shown and the backup branch is removed |
 | 3 | merge conflict. The merge is **left in progress**; resolve and commit, or `git merge --abort`. Then re-check the fork markers on the resolved tree by hand |
 | 4 | a gate refused: the carry gate, the counter-label rule, a pin that is not upstream's, a tag not matching the stable pattern, a stale local tag; for `sync-default`: a diverged local mirror, a fork mirror that is not a pure ancestor of upstream, or a GitHub parent that is not the upstream remote |
 | 5 | a fork marker was lost. The merge is **staged but not committed** |

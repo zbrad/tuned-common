@@ -158,6 +158,12 @@ check "conflict: stops with the merge in progress, exit 3, prints the abort comm
   "cd '${W}/x1'; ${SYNC} merge --tag v8.0.0 --default-branch main --apply"
 check "conflict: MERGE_HEAD is present, nothing committed, the backup exists" 0 "-" "-" \
   "cd '${W}/x1'; [ -f .git/MERGE_HEAD ] && [ -n \"\$(git branch --list 'tuned-builds-backup-*')\" ] && [ \"\$(git log -1 --format=%s)\" = 'tuned edits b' ]"
+newfork x2 v1.0.0
+( cd "${W}/x2"; echo local-only > b.txt ) >/dev/null 2>&1
+check "refused: an untracked file the merge would overwrite stops it, exit 2, git's message and the file shown" 2 "MERGE NOT STARTED.*|would be overwritten by merge|    	b\\.txt" "-" \
+  "cd '${W}/x2'; ${SYNC} merge --tag v1.2.0 --default-branch main --apply"
+check "refused: no MERGE_HEAD, nothing committed, the backup branch is removed, the untracked file is untouched" 0 "-" "-" \
+  "cd '${W}/x2'; [ ! -f .git/MERGE_HEAD ] && [ -z \"\$(git branch --list 'tuned-builds-backup-*')\" ] && [ \"\$(git log -1 --format=%s)\" = 'T1 tuned' ] && [ \"\$(cat b.txt)\" = local-only ]"
 newfork m1 v1.0.0
 check "markers: a clean merge that drops a fork marker line is staged but NOT committed (exit 5)" 5 "FORK MARKER LOST: gpu_tuned_" "marker 'gpu_tuned_': [0-9]+ -> [0-9]+" \
   "cd '${W}/m1'; ${SYNC} merge --tag v9.0.0 --default-branch main --apply"
