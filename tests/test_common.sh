@@ -501,6 +501,60 @@ check "legacy gpu_tuned_local_version is unchanged" 0 "-" "^gb10\.cu134\.tuning\
 check "legacy gpu_tuned_tuning_label is unchanged" 0 "-" "^tuning\.149$" \
   "${pre}; gpu_tuned_tuning_label '0.7.0+gb10.cu134.tuning.149'"
 
+# --- hyphenated variants: the host-OS suffix (rtx50-win, n1x-win) ---
+# The device name and the release tag carry "-"; a PEP 440 local label carries "."
+# in its place, because both the wheel FILE NAME (hyphen-delimited fields) and PEP
+# 440 normalization would otherwise rewrite it. docs/VERSIONING.md has the rule.
+# if-guarded, like the "if-guarded failure is silent" case above: a bare failing call would
+# trip the library's ERR trap and write to stderr, which "-" (stderr must be empty) rejects.
+vv() { echo "${pre}; if gpu_tuned_valid_variant $1; then echo yes; else echo no; fi"; }
+check "valid_variant: a plain name passes" 0 "-" "^yes$" "$(vv gb10)"
+check "valid_variant: a hyphen-joined name passes" 0 "-" "^yes$" "$(vv rtx50-win)"
+check "valid_variant: two hyphens, three segments, passes" 0 "-" "^yes$" "$(vv rtx50-win-arm)"
+check "valid_variant: a leading hyphen is refused" 0 "-" "^no$" "$(vv -win)"
+check "valid_variant: a trailing hyphen is refused" 0 "-" "^no$" "$(vv rtx50-)"
+check "valid_variant: a doubled hyphen is refused" 0 "-" "^no$" "$(vv rtx50--win)"
+check "valid_variant: an underscore is refused" 0 "-" "^no$" "$(vv rtx50_win)"
+check "valid_variant: uppercase is refused" 0 "-" "^no$" "$(vv RTX50-win)"
+check "valid_variant: a leading digit is refused" 0 "-" "^no$" "$(vv 50rtx-win)"
+check "valid_variant: an empty name is refused" 0 "-" "^no$" "$(vv '""')"
+check "variant_label: a hyphen becomes a dot" 0 "-" "^rtx50\.win$" "${pre}; gpu_tuned_variant_label rtx50-win"
+check "variant_label: a plain name is unchanged" 0 "-" "^gb10$" "${pre}; gpu_tuned_variant_label gb10"
+check "variant_label: a malformed variant is refused, not normalised" 1 "lowercase" "-" \
+  "${pre}; gpu_tuned_variant_label rtx50--win"
+check "dated label: a hyphenated variant is written with a dot" 0 "-" "^rtx50\.win\.cu134\.20261105\.0$" \
+  "${pre}; gpu_tuned_local_version_dated rtx50-win 134 20261105 0"
+check "dated label: a malformed hyphenated variant is refused" 1 "lowercase" "-" \
+  "${pre}; gpu_tuned_local_version_dated rtx50- 134 20261105 0"
+check "legacy local_version dots a hyphenated variant too" 0 "-" "^n1x\.win\.cu134\.tuning\.7$" \
+  "${pre}; gpu_tuned_local_version n1x-win 134 7"
+check "wheel_label: the dotted spelling of a hyphenated variant passes" 0 "-" "-" \
+  "${pre}; gpu_tuned_check_wheel_label $(wl +rtx50.win.cu134.20261105.0)"
+check "wheel_label: a hyphen in the label is refused -- the wheel name's own fields are hyphen-delimited" 1 "is not <variant>" "-" \
+  "${pre}; gpu_tuned_check_wheel_label $(wl +rtx50-win.cu134.20261105.0)"
+check "native_tag: a hyphenated variant keeps the hyphen" 0 "-" "^v0\.20261105\.0-rtx50-win-cu134$" \
+  "${pre}; gpu_tuned_native_tag rtx50-win cu134 20261105"
+check "native_tag: a malformed hyphenated variant is refused" 1 "gpu_tuned_native_tag" "-" \
+  "${pre}; gpu_tuned_native_tag rtx50--win cu134 20261105"
+check "date_label: reads a hyphenated variant's native tag" 0 "-" "^20261105$" \
+  "${pre}; gpu_tuned_date_label 'v0.20261105.0-rtx50-win-cu134'"
+check "date_label: reads date.seq from a hyphenated variant's native tag" 0 "-" "^20261105\.3$" \
+  "${pre}; gpu_tuned_date_label 'v0.20261105.3-n1x-win-cu134'"
+check "native_tag: round-trips through date_label for a hyphenated variant" 0 "-" "^20261105\.2$" \
+  "${pre}; gpu_tuned_date_label \"\$(gpu_tuned_native_tag rtx50-win cu134 20261105.2)\""
+check "release_tag: a hyphenated variant's native tag passes the gate" 0 "-" "-" \
+  "${pre}; gpu_tuned_check_release_tag v0.20261105.0-rtx50-win-cu134"
+check "release_tag: the dotted wheel form of a hyphenated variant passes" 0 "-" "-" \
+  "${pre}; gpu_tuned_check_release_tag v2.15.0+rtx50.win.cu134.20261105.0"
+check "newest_tag: a -win tag is not picked up by the bare variant" 1 "." "-" \
+  "${pre}; printf 'v0.20261105.0-rtx50-win-cu134\n' | gpu_tuned_newest_release_tag rtx50 cu134"
+check "newest_tag: the bare variant's tag is not picked up by -win" 1 "." "-" \
+  "${pre}; printf 'v0.20261105.0-rtx50-cu134\n' | gpu_tuned_newest_release_tag rtx50-win cu134"
+check "newest_tag: -win picks its own newest and ignores the bare variant's newer one" 0 "-" "^v0\.20261105\.1-rtx50-win-cu134$" \
+  "${pre}; printf 'v0.20261106.0-rtx50-cu134\nv0.20261105.1-rtx50-win-cu134\nv0.20261105.0-rtx50-win-cu134\n' | gpu_tuned_newest_release_tag rtx50-win cu134"
+check "allocation: a -win native tag is seen as taken for its date" 0 "-" "^1$" \
+  "${pre}; printf 'v0.20261105.0-rtx50-win-cu134\n' | while read t; do gpu_tuned_date_label \"\$t\"; done | gpu_tuned_next_seq 20261105"
+
 # --- nvcc -> compact cuda tag ---
 nv="$(mktemp -d)"; mkdir -p "${nv}/cuda-13.4/bin" "${nv}/cuda-12.10/bin" "${nv}/broken/bin"
 mknvcc() { printf '#!/bin/sh\nprintf "nvcc: NVIDIA (R) Cuda compiler driver\\nCuda compilation tools, release %s, V%s.48\\n"\n' "$2" "$2" > "$1/bin/nvcc"; chmod +x "$1/bin/nvcc"; }
@@ -771,6 +825,8 @@ check "has_device_code: no cuobjdump is a failure, not a no" 2 "cuobjdump not fo
 check "mark_for: device code -> -<variant>-<toolkit>" 0 "-" "^-gb10-cu133$" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libdev.so' gb10 cu133"
 check "mark_for: no device code -> -<toolkit>" 0 "-" "^-cu133$" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libhost.so' gb10 cu133"
 check "mark_for: a bad toolkit is refused" 1 "need <elf> <variant> <cuNNN>" "-" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libhost.so' gb10 13.3"
+check "mark_for: a hyphenated variant marks both axes" 0 "-" "^-rtx50-win-cu133$" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libdev.so' rtx50-win cu133"
+check "mark_for: a malformed hyphenated variant is refused" 1 "need <elf> <variant> <cuNNN>" "-" "${pre}; gpu_tuned_so_mark_for '${ax}/s/libdev.so' rtx50- cu133"
 
 AXM="${ax}/axes.manifest"
 check "axes_manifest: writes '<name> <mark>' by contents" 0 "-" "^libdev\.so -gb10-cu133$" "${pre}; gpu_tuned_axes_manifest '${ax}/s' gb10 cu133 '${AXM}' libdev.so libhost.so && cat '${AXM}'"
@@ -967,6 +1023,22 @@ fake_venv "${ptp_dir}/.venv" "2.5.0+rtx40.cu134.tuning.9"
 check "protect_torch_pin: variant is not hardcoded to gb10" 0 "-" \
   "constraints-rtx40\\.txt" \
   "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' >/dev/null; ls '${ptp_dir}'/constraints-rtx40.txt"
+rm -rf "${ptp_dir}"
+
+# A hyphenated variant reaches here already dotted, and a dotted label cannot be
+# split back on its own ("+g9710.rtx50.win.cu134" reads like an scm prefix in front
+# of a one-segment variant), so the build's own GPU_TUNED_VARIANT decides when set.
+ptp_dir="$(mktemp -d)"
+fake_venv "${ptp_dir}/.venv" "2.15.0+rtx50.win.cu134.20261105.0"
+check "protect_torch_pin: GPU_TUNED_VARIANT names a hyphenated variant the label cannot" 0 "-" \
+  "constraints-rtx50-win\\.txt" \
+  "${pre}; GPU_TUNED_VARIANT=rtx50-win gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' >/dev/null; ls '${ptp_dir}'/constraints-rtx50-win.txt"
+check "protect_torch_pin: without it the dotted label falls back to its last segment" 0 "-" \
+  "constraints-win\\.txt" \
+  "${pre}; gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' >/dev/null; ls '${ptp_dir}'/constraints-win.txt"
+check "protect_torch_pin: a GPU_TUNED_VARIANT this wheel does not carry is ignored" 0 "-" \
+  "constraints-win\\.txt" \
+  "${pre}; GPU_TUNED_VARIANT=gb10 gpu_tuned_protect_torch_pin '${ptp_dir}/.venv' >/dev/null; ls '${ptp_dir}'/constraints-win.txt"
 rm -rf "${ptp_dir}"
 
 ptp_dir="$(mktemp -d)"

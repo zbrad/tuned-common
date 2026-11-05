@@ -32,6 +32,10 @@ def _audit(*rows: tuple[str, str, str]) -> WheelVersionAudit:
         ("gb10.cu134.20261010.1", DATED),
         ("g44a0a3c96.gb10.cu134.20261010", DATED),
         ("gb10.cu134.20261010.0", DATED),
+        # A hyphenated variant (rtx50-win) is spelled with a dot in a local label:
+        # PEP 440 would make that substitution itself. docs/VERSIONING.md.
+        ("rtx50.win.cu134.20261105.0", DATED),
+        ("n1x.win.cu134.20261105", DATED),
         ("gb10.cu134.20261010.01", PRE_MARKER),
         ("gb10.cu134.20260230", PRE_MARKER),
         ("gb10.cu134.02061010", PRE_MARKER),

@@ -57,6 +57,31 @@ try {
     Assert-Throws 'native_tag bad date' { New-TunedNativeTag n1x cu134 20261311 } 'need'
     Assert-Equal 'native_tag round trip' '20261011.2' (Get-TunedDateLabel (New-TunedNativeTag n1x cu134 20261011.2))
 
+    # hyphenated variants (rtx50-win, n1x-win): the name and the tag keep "-", the wheel label
+    # is dotted. Same rule as the bash side; test_parity.ps1 compares the two.
+    Assert-Equal 'valid_variant plain' $true (Test-TunedValidVariant 'gb10')
+    Assert-Equal 'valid_variant hyphen-joined' $true (Test-TunedValidVariant 'rtx50-win')
+    Assert-Equal 'valid_variant leading hyphen' $false (Test-TunedValidVariant '-win')
+    Assert-Equal 'valid_variant trailing hyphen' $false (Test-TunedValidVariant 'rtx50-')
+    Assert-Equal 'valid_variant doubled hyphen' $false (Test-TunedValidVariant 'rtx50--win')
+    Assert-Equal 'valid_variant underscore' $false (Test-TunedValidVariant 'rtx50_win')
+    Assert-Equal 'valid_variant uppercase' $false (Test-TunedValidVariant 'RTX50-win')
+    Assert-Equal 'variant_label dots the hyphen' 'rtx50.win' (Get-TunedVariantLabel 'rtx50-win')
+    Assert-Equal 'variant_label leaves a plain name' 'gb10' (Get-TunedVariantLabel 'gb10')
+    Assert-Throws 'variant_label refuses malformed' { Get-TunedVariantLabel 'rtx50--win' } 'variant'
+    Assert-Equal 'local_version_dated hyphenated is dotted' 'rtx50.win.cu134.20261105.0' `
+        (New-TunedLocalVersionDated rtx50-win 134 20261105)
+    Assert-Throws 'local_version_dated malformed hyphen' { New-TunedLocalVersionDated rtx50- 134 20261105 } 'variant'
+    Assert-Equal 'native_tag hyphenated keeps the hyphen' 'v0.20261105.0-rtx50-win-cu134' `
+        (New-TunedNativeTag rtx50-win cu134 20261105)
+    Assert-Throws 'native_tag malformed hyphen' { New-TunedNativeTag rtx50--win cu134 20261105 } 'need'
+    Assert-Equal 'date_label reads a hyphenated native tag' '20261105' (Get-TunedDateLabel 'v0.20261105.0-rtx50-win-cu134')
+    Assert-Equal 'date_label reads seq from a hyphenated native tag' '20261105.3' (Get-TunedDateLabel 'v0.20261105.3-n1x-win-cu134')
+    Assert-Equal 'date_label reads the dotted wheel form' '20261105' (Get-TunedDateLabel '2.15.0+rtx50.win.cu134.20261105.0')
+    Assert-Equal 'date_label rejects a doubled hyphen in a tag' $null (Get-TunedDateLabel 'v0.20261105.0-rtx50--win-cu134')
+    Assert-Equal 'native_tag hyphenated round trip' '20261105.2' `
+        (Get-TunedDateLabel (New-TunedNativeTag rtx50-win cu134 20261105.2))
+
     Assert-Equal 'next_seq empty' '0' (Get-TunedNextSeq 20261010 @())
     Assert-Equal 'next_seq bare taken' '1' (Get-TunedNextSeq 20261010 @('20261010'))
     Assert-Equal 'next_seq fills gap' '1' (Get-TunedNextSeq 20261010 @('20261010', '20261010.2'))

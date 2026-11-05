@@ -46,7 +46,9 @@ try {
     foreach ($v in '2.15.0+gb10.cu134.20261010.1', '2.15.0+gb10.cu134.20261010.0', '2.15.0+gb10.cu134.20261010',
         '2.15.0+g44a0a3c96.gb10.cu134.20261010', '2.15.0.dev20260911', '0.7.0+gb10.cu134.tuning.35', '1.0+gb10.cu134.20261310',
         '1.0+gb10.cu134.20261010.01', 'v0.20261016.0-gb10-cu133', 'v0.20261016.3-n1x-cu134', 'v26.12-gb10-cu134-g9d97792e',
-        'v0.20261016.00-gb10-cu133', 'v0.20261316.0-gb10-cu133', '1.0+GB10.cu134.20261010', 'v0.20261016.0-GB10-cu133') {
+        'v0.20261016.00-gb10-cu133', 'v0.20261316.0-gb10-cu133', '1.0+GB10.cu134.20261010', 'v0.20261016.0-GB10-cu133',
+        'v0.20261105.0-rtx50-win-cu134', 'v0.20261105.3-n1x-win-cu134', '2.15.0+rtx50.win.cu134.20261105.0',
+        'v0.20261105.0-rtx50--win-cu134', 'v0.20261105.0--win-cu134', 'v0.20261105.0-rtx50-win-cu134-extra') {
         Compare-Case "date_label $v" 'gpu_tuned_date_label' @($v) ([scriptblock]::Create("Get-TunedDateLabel '$v'"))
     }
 
@@ -55,12 +57,15 @@ try {
     }
 
     foreach ($c in @('gb10 cu134 20261011', 'n1x cu134 20261011.2', 'n1x 134 20261011', 'n1x cu134 20261011.0', 'n1x cu134 20261311',
-            'GB10 cu134 20261011', 'n1x cu134 20261011.01', 'n1x cu134 20261011.', '1x cu134 20261011')) {
+            'GB10 cu134 20261011', 'n1x cu134 20261011.01', 'n1x cu134 20261011.', '1x cu134 20261011',
+            'rtx50-win cu134 20261105', 'n1x-win cu134 20261105.2', 'rtx50- cu134 20261105',
+            'rtx50--win cu134 20261105', '-win cu134 20261105', 'rtx50_win cu134 20261105')) {
         $a = $c -split ' '
         Compare-Case "native_tag $c" 'gpu_tuned_native_tag' $a ([scriptblock]::Create("New-TunedNativeTag '$($a[0])' '$($a[1])' '$($a[2])'"))
     }
 
-    foreach ($c in @('gb10 134 20261010 0', 'n1x 134 20261010 12', 'GB10 134 20261010 0', 'gb10 13.4 20261010 0', 'gb10 134 20261310 0', 'gb10 134 20261010 01')) {
+    foreach ($c in @('gb10 134 20261010 0', 'n1x 134 20261010 12', 'GB10 134 20261010 0', 'gb10 13.4 20261010 0', 'gb10 134 20261310 0', 'gb10 134 20261010 01',
+            'rtx50-win 134 20261105 0', 'n1x-win 134 20261105 12', 'rtx50- 134 20261105 0', 'rtx50--win 134 20261105 0', 'rtx50_win 134 20261105 0')) {
         $a = $c -split ' '
         Compare-Case "local_version_dated $c" 'gpu_tuned_local_version_dated' $a ([scriptblock]::Create("New-TunedLocalVersionDated '$($a[0])' '$($a[1])' '$($a[2])' '$($a[3])'"))
     }
@@ -120,7 +125,8 @@ try {
             @{ tag = 'v0.20261011.0-n1x-cu134'; label = 'one tag' },
             @{ tag = '2.15.0+n1x.cu134.20261011.1'; label = 'wheel tag' },
             @{ tag = 'v0.20261012.0-n1x-cu134'; label = 'other date' },
-            @{ tag = 'v0.20261011.3-gb10-cu133'; label = 'gap at 2' })) {
+            @{ tag = 'v0.20261011.3-gb10-cu133'; label = 'gap at 2' },
+            @{ tag = 'v0.20261011.1-rtx50-win-cu134'; label = 'hyphenated variant tag is seen as taken' })) {
         if ($step.tag) { git -C $repo tag $step.tag; git -C $repo push -q origin $step.tag 2>$null }
         Compare-Case "allocate_date_label ($($step.label))" 'gpu_tuned_allocate_date_label' @($wslRepo, 'wslorigin') { New-TunedDateLabel $repo origin }
     }

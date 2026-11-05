@@ -28,11 +28,31 @@ function Test-TunedValidDate {
         [Globalization.DateTimeStyles]::None, [ref]$parsed)
 }
 
-# gpu_tuned_local_version_dated -- <variant>.cu<cuda>.<YYYYMMDD>.<seq>
+# gpu_tuned_valid_variant -- lowercase alphanumeric segments joined by "-" (gb10, rtx50,
+# rtx50-win, n1x-win); the hyphen cannot lead, trail or double.
+function Test-TunedValidVariant {
+    param([string]$Variant)
+    return $Variant -cmatch '^[a-z][a-z0-9]*(-[a-z0-9]+)*\z'
+}
+
+# gpu_tuned_variant_label -- the variant as a PEP 440 local version spells it: hyphens become
+# dots (rtx50-win -> rtx50.win). The ONE place that conversion happens. Two reasons it must:
+# PEP 440 normalizes "-" to "." inside a local label, and the wheel file name's own fields are
+# hyphen-delimited, so a hyphen there truncates the version field. A release tag and a device
+# name keep the hyphen, so a release titled "rtx50-win" ships a wheel labelled "rtx50.win".
+function Get-TunedVariantLabel {
+    param([string]$Variant)
+    if (-not (Test-TunedValidVariant $Variant)) {
+        throw "Get-TunedVariantLabel: variant '$Variant' must be lowercase alphanumeric, optionally joined by '-' (e.g. gb10, rtx50-win)."
+    }
+    $Variant.Replace('-', '.')
+}
+
+# gpu_tuned_local_version_dated -- <variant>.cu<cuda>.<YYYYMMDD>.<seq>, the variant dotted.
 function New-TunedLocalVersionDated {
     param([string]$Variant, [string]$Cuda, [string]$Date, [string]$Seq = '0')
-    if ($Variant -cnotmatch '^[a-z][a-z0-9]*\z') {
-        throw "New-TunedLocalVersionDated: variant '$Variant' must be lowercase alphanumeric (e.g. gb10)."
+    if (-not (Test-TunedValidVariant $Variant)) {
+        throw "New-TunedLocalVersionDated: variant '$Variant' must be lowercase alphanumeric, optionally joined by '-' (e.g. gb10, rtx50-win)."
     }
     if ($Cuda -notmatch '^[0-9]+\z') {
         throw "New-TunedLocalVersionDated: cuda-compact '$Cuda' must be digits only (e.g. 134 for CUDA 13.4)."
@@ -43,7 +63,7 @@ function New-TunedLocalVersionDated {
     if ($Seq -notmatch '^(0|[1-9][0-9]*)\z') {
         throw "New-TunedLocalVersionDated: sequence '$Seq' must be a canonical integer (0 = first build of the day, no leading zeros)."
     }
-    "$Variant.cu$Cuda.$Date.$Seq"
+    "$(Get-TunedVariantLabel $Variant).cu$Cuda.$Date.$Seq"
 }
 
 # gpu_tuned_date_label -- the "<YYYYMMDD>[.<seq>]" at the end of a date-form version or native
@@ -56,7 +76,7 @@ function Get-TunedDateLabel {
         $seq = $Matches[3]
         if (-not (Test-TunedValidDate $label)) { return $null }
         if ($seq -and $seq -ne '0') { $label = "$label.$seq" }
-    } elseif ($Version -cmatch '^v0\.([1-9][0-9]{7})\.(0|[1-9][0-9]*)-[a-z][a-z0-9]*-cu[0-9]+\z') {
+    } elseif ($Version -cmatch '^v0\.([1-9][0-9]{7})\.(0|[1-9][0-9]*)-[a-z][a-z0-9]*(-[a-z0-9]+)*-cu[0-9]+\z') {
         $label = $Matches[1]
         $seq = $Matches[2]
         if (-not (Test-TunedValidDate $label)) { return $null }
@@ -76,7 +96,7 @@ function New-TunedNativeTag {
     param([string]$Variant, [string]$CudaTag, [string]$Label)
     $date = $Label.Split('.')[0]
     $seq = Get-TunedLabelSeq $Label
-    $bad = ($Variant -cnotmatch '^[a-z][a-z0-9]*\z') -or ($CudaTag -cnotmatch '^cu[0-9]+\z') `
+    $bad = (-not (Test-TunedValidVariant $Variant)) -or ($CudaTag -cnotmatch '^cu[0-9]+\z') `
         -or (-not (Test-TunedValidDate $date)) -or ($seq -notmatch '^(0|[1-9][0-9]*)\z') `
         -or (($Label -ne $date) -and (($seq -eq '0') -or ($Label -ne "$date.$seq")))
     if ($bad) {

@@ -12,7 +12,24 @@ e.g.  2.15.0+gb10.cu134.20261010.0      first build of that day
       2.15.0+gb10.cu134.20261010.1      second build the same day
 ```
 
-- `<variant>`: lowercase alphanumeric (`gb10`, `rtx50`).
+- `<variant>`: lowercase alphanumeric segments joined by `-` (`gb10`, `rtx50`,
+  `rtx50-win`, `n1x-win`). **In this label the joiner is written `.`, not `-`**
+  (`2.15.0+rtx50.win.cu134.20261105.0`), for two independent reasons: PEP 440
+  normalizes `-` to `.` inside a local label, so a hyphen written here comes back
+  out of the installed metadata as a dot and the filename stops matching the string
+  we built; and the wheel **file name**'s own fields are hyphen-delimited
+  (`<name>-<version>-<pytag>-<abitag>-<platform>.whl`), so a hyphen inside the
+  version truncates the version field itself -- `gpu_tuned_check_wheel_label` reads
+  `torch-2.15.0+rtx50-win.cu134.20261105.0-…` as version `2.15.0+rtx50` and refuses
+  it (a test pins this).
+  `gpu_tuned_variant_label` is the only place that substitution happens, and
+  `gpu_tuned_local_version_dated` applies it for you: pass the variant as the device
+  file spells it. The **release tag keeps the hyphen** (`v0.<date>.<seq>-rtx50-win-cu134`,
+  where `-` is a field separator and PEP 440 does not apply), so one build's release
+  title reads `rtx50-win` while its wheel reads `rtx50.win`. That is intended, and
+  the two are not interchangeable spellings: a wheel label must never contain `-`,
+  and a device name or tag must never contain `.`. Added 2026-11-05 with the
+  `-win` variants (`devices/rtx50-win.conf`, `devices/n1x-win.conf`).
 - `cu<cuda>`: CUDA toolkit, digits only, no dot (`cu134` for 13.4).
 - `<YYYYMMDD>`: a real calendar date, not starting with `0`, as its **own purely
   numeric segment**. Intended source: the committer date (UTC) of the tuned
