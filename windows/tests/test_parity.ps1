@@ -89,7 +89,14 @@ try {
     $i = 0
     foreach ($c in $jsonCases) {
         $i++
-        $ps = { New-TunedBuildInfoJson -Field $c }.GetNewClosure()
+        # Not .GetNewClosure(): that binds the scriptblock to a new module scope, where the
+        # functions dot-sourced from tuned-common.ps1 at script scope are not visible, so every
+        # case died with CommandNotFoundException and Invoke-Ps reported it as 'err'. The cases
+        # where bash also fails then "passed" for the wrong reason, without running the function
+        # at all. A script-scoped argument plus a plain scriptblock keeps the function resolvable,
+        # which is what the [scriptblock]::Create calls elsewhere in this file already get.
+        $script:bijField = $c
+        $ps = { New-TunedBuildInfoJson -Field $script:bijField }
         Compare-Case "build_info_json #$i" 'gpu_tuned_build_info_json' ([string[]]$c) $ps
     }
 
