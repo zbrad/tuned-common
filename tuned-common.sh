@@ -65,6 +65,37 @@ gpu_tuned_assert_platform() {
     fi
 }
 
+# gpu_tuned_assert_host_os <expected-os> <variant-label> — the OS counterpart of
+# gpu_tuned_assert_platform: fail loudly when the host OS is not the one the
+# variant's device file declares in GPU_TUNED_HOST_OS. Without this the variant
+# name is only a string, so `bash tuned/build.sh rtx50-win` would run happily in
+# WSL and produce a Linux ELF labelled as a Windows artifact — exactly the
+# bleedover that per-toolkit and per-variant output trees exist to prevent.
+#
+# WSL reports Linux and is treated as linux, deliberately. A WSL build emits an
+# ordinary Linux ELF: libcuda.so.1 resolves by SONAME, from /usr/lib/wsl/lib
+# under WSL and from the driver package on bare Linux, so the artifact is the
+# same one and must not be labelled differently. There is no separate wsl value.
+gpu_tuned_assert_host_os() {
+    local expected="$1" variant="${2:-<unset>}" actual uname_s
+    uname_s="$(uname -s)"
+    case "${uname_s}" in
+        Linux*) actual=linux ;;
+        MINGW* | MSYS* | CYGWIN*) actual=windows ;;
+        Darwin*) actual=darwin ;;
+        *) actual="${uname_s}" ;;
+    esac
+    if [[ "${actual}" != "${expected}" ]]; then
+        echo "ERROR: gpu_tuned_assert_host_os: variant '${variant}' declares" \
+             "GPU_TUNED_HOST_OS='${expected}', but this host is '${actual}' (uname -s: ${uname_s})." >&2
+        if [[ "${expected}" == windows ]]; then
+            echo "       A windows variant is built through windows/tuned-common.ps1, not these" \
+                 "bash scripts. Building it here would emit an ELF labelled as Windows." >&2
+        fi
+        return 1
+    fi
+}
+
 # gpu_tuned_assert_compute_cap <expected-compute-cap> <hw-label> — fail
 # loudly if this host's GPU compute capability (via nvidia-smi) doesn't
 # match, rather than silently building for whatever GPU is actually
@@ -440,7 +471,7 @@ gpu_tuned_verify_toolkit_libs() {
 # one loud block and the function fails, so a repo cannot quietly drift from
 # the shared definitions. Call it after gpu_tuned_load_toolkit.
 GPU_TUNED_PROTECTED_KEYS=(
-    GPU_TUNED_VARIANT GPU_TUNED_PLATFORM GPU_TUNED_CUDA_ARCH GPU_TUNED_HW_LABEL
+    GPU_TUNED_VARIANT GPU_TUNED_PLATFORM GPU_TUNED_HOST_OS GPU_TUNED_CUDA_ARCH GPU_TUNED_HW_LABEL
     GPU_TUNED_TOOLKIT_LIB_DIR CUDA_VER CUDA_TAG CUDA_HOME
     TOOLKIT_ID TOOLKIT_CUDA_VER TOOLKIT_CUDA_HOME TOOLKIT_NVCC_RELEASE TOOLKIT_NCCL_VERSION
 )

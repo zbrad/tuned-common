@@ -1051,6 +1051,15 @@ check "load_toolkit: no id and no toolkit files is an error" 1 "none defined" "-
 # every real toolkit file must answer the NCCL question (a pinned system version, or "none"), so a new toolkit cannot be added without deciding it
 check "toolkit files: every toolkit defines TOOLKIT_NCCL_VERSION (a version, or none)" 0 "-" "^ok$" \
   "D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; bad=0; for f in \"\$D\"/toolkits/*.env; do b=\$(basename \$f .env); case \$b in *-cu*) continue;; esac; grep -qE '^TOOLKIT_NCCL_VERSION=\"[^\"]+\"' \$f || { echo \"missing in \$f\" >&2; bad=1; }; done; [ \$bad -eq 0 ] && echo ok"
+# every real device file must answer the host-OS question, so a new device cannot be added without deciding it
+check "device files: every device defines GPU_TUNED_HOST_OS (linux or windows)" 0 "-" "^ok$" \
+  "D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; bad=0; for f in \"\$D\"/devices/*.conf; do grep -qE '^GPU_TUNED_HOST_OS=\"(linux|windows)\"' \$f || { echo \"missing or invalid in \$f\" >&2; bad=1; }; done; [ \$bad -eq 0 ] && echo ok"
+check "assert_host_os: the OS this host actually runs passes" 0 "-" "-" \
+  "${pre}; gpu_tuned_assert_host_os linux rtx50"
+check "assert_host_os: a windows variant is refused by the bash scripts" 1 "this host is 'linux'" "-" \
+  "${pre}; gpu_tuned_assert_host_os windows rtx50-win"
+check "assert_host_os: refusing a windows variant points at the PowerShell loader" 1 "windows/tuned-common.ps1" "-" \
+  "${pre}; gpu_tuned_assert_host_os windows rtx50-win"
 check "verify_toolkit: TOOLKIT_NCCL_VERSION=none skips the system NCCL check and says so" 0 "-" "no system NCCL" \
   "${pre}; mkdir -p '${tk}/n/bin'; printf '#!/bin/sh\\necho \"Cuda compilation tools, release 99.9, V99.9.1\"\\n' > '${tk}/n/bin/nvcc'; chmod +x '${tk}/n/bin/nvcc'; TOOLKIT_ID=cu999 TOOLKIT_CUDA_HOME='${tk}/n' CUDA_HOME='${tk}/n' TOOLKIT_NVCC_RELEASE=99.9 TOOLKIT_NCCL_VERSION=none PATH='${tk}/n/bin':\$PATH gpu_tuned_verify_toolkit"
 # bundled CUDA flavour (dpkg stubbed on PATH)
