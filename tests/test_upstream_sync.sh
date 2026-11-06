@@ -270,7 +270,7 @@ newfork j1 v1.2.0
 check "J5: a merge that brings agent rule files back moves them to rules_advisory in their own commit" 0 "dispatch:" "moved 2 file\(s\) in one commit" \
   "cd '${W}/j1'; ${SYNC} merge --tag v7.0.0 --default-branch main --apply"
 check "J5: they are gone from the default paths and present under rules_advisory, tree clean" 0 "-" "-" \
-  "cd '${W}/j1'; [ ! -e CLAUDE.md ] && [ ! -e .claude ] && [ -f rules_advisory/CLAUDE.md ] && [ -f rules_advisory/.claude/skills/s/SKILL.md ] && [ -z \"\$(git status --porcelain)\" ] && [ \"\$(git rev-list --parents -n1 HEAD | wc -w)\" = 2 ]"
+  "cd '${W}/j1'; [ ! -e CLAUDE.md ] && [ ! -e .claude ] && [ -f rules_advisory/upstream_guidance.md ] && [ -f rules_advisory/guidance_tools/skills/s/SKILL.md ] && [ -z \"\$(git status --porcelain)\" ] && [ \"\$(git rev-list --parents -n1 HEAD | wc -w)\" = 2 ]"
 newfork j2 v1.2.0
 check "J5: a merge bringing none says so and adds no commit" 0 "dispatch:" "nothing to move" \
   "cd '${W}/j2'; ${SYNC} merge --tag v9.0.0 --default-branch main --apply --markers gpu_tuned_embed"
