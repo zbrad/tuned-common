@@ -345,6 +345,47 @@ check "pip_install_requirements: with a lock it says it installs under it" 0 "-"
   "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/venv/bin':\"\$PATH\"; gpu_tuned_pip_install_requirements '${vv}/none.txt' --quiet --no-index 2>&1 | head -1"
 check "pip_install_requirements: GPU_TUNED_UNLOCKED=1 ignores the lock" 0 "-" "UNLOCKED" \
   "${pre}; export VIRTUAL_ENV='${vv}/venv'; export PATH='${vv}/venv/bin':\"\$PATH\"; GPU_TUNED_UNLOCKED=1 gpu_tuned_pip_install_requirements '${vv}/none.txt' --quiet --no-index 2>&1 | head -1"
+# GPU_TUNED_PYTEST_SPEC: a python3 shim ahead of the venv's prints what `python3 -m pip` got, and the constraint files' text
+mkdir -p "${vv}/shim"
+real_py="${vv}/venv/bin/python3"
+cat > "${vv}/shim/python3" <<EOF
+#!/usr/bin/env bash
+if [[ "\$1" == -m && "\$2" == pip ]]; then
+    echo "pip args: \$*"
+    prev=""; for a in "\$@"; do [[ "\${prev}" == -c ]] && echo "constraint: \$(cat "\${a}")"; prev="\${a}"; done
+    exit 0
+fi
+exec '${real_py}' "\$@"
+EOF
+chmod +x "${vv}/shim/python3"
+shim_env="export PATH='${vv}/shim':'${vv}/venv/bin':\"\$PATH\""
+check "pip_install_requirements: the pytest spec is a constraint under a lock" 0 "-" "^constraint: pytest<9\.2$" \
+  "${pre}; ${shim_env}; gpu_tuned_pip_install_requirements '${vv}/none.txt'"
+check "pip_install_requirements: the pytest spec is a constraint when UNLOCKED" 0 "-" "^constraint: pytest<9\.2$" \
+  "${pre}; ${shim_env}; GPU_TUNED_UNLOCKED=1 gpu_tuned_pip_install_requirements '${vv}/none.txt'"
+check "pip_install_requirements: the constraints temp file is removed" 0 "-" "^gone$" \
+  "${pre}; ${shim_env}; f=\$(gpu_tuned_pip_install_requirements '${vv}/none.txt' | sed -n 's/^pip args: .* -c \(\/[^ ]*gpu-tuned-constraints[^ ]*\).*/\1/p'); [[ -n \"\${f}\" && ! -e \"\${f}\" ]] && echo gone"
+printf 'pytest==9.2.0\n' > "${vv}/pt92.lock"; : > "${vv}/pt92.txt"
+check "pip_install_requirements: a lock pinning pytest outside the spec is refused before pip" 1 "pins pytest==9\.2\.0, outside pytest<9\.2" "-" \
+  "${pre}; ${shim_env}; o=\$(gpu_tuned_pip_install_requirements '${vv}/pt92.txt') || { rc=\$?; [[ \"\${o}\" != *'pip args'* ]] || echo 'pip ran' >&2; exit \${rc}; }"
+printf 'pytest==9.1.0\n' > "${vv}/pt91.lock"; : > "${vv}/pt91.txt"
+check "pip_install_requirements: a lock pinning pytest inside the spec installs" 0 "-" "under pt91.lock and pytest<9\.2" \
+  "${pre}; ${shim_env}; gpu_tuned_pip_install_requirements '${vv}/pt91.txt'"
+check "spec_allows: 9.1.9 is inside pytest<9.2" 0 "-" "-" "${pre}; gpu_tuned_spec_allows '${real_py}' 'pytest<9.2' 9.1.9"
+check "spec_allows: 9.2.0rc1 is outside pytest<9.2" 1 "-" "-" "${pre}; gpu_tuned_spec_allows '${real_py}' 'pytest<9.2' 9.2.0rc1 || exit \$?"
+check "spec_allows: an unreadable spec is rc 2" 2 "cannot read the requirement spec" "-" \
+  "${pre}; gpu_tuned_spec_allows '${real_py}' 'pytest<<' 9.1 || exit \$?"
+# gpu_tuned_check_pytest reads importlib.metadata, so a bare dist-info on PYTHONPATH stands in for an installed pytest
+for v in 9.1.0 9.2.0; do
+    mkdir -p "${vv}/fake${v}/pytest-${v}.dist-info"
+    printf 'Metadata-Version: 2.1\nName: pytest\nVersion: %s\n' "${v}" > "${vv}/fake${v}/pytest-${v}.dist-info/METADATA"
+done
+check "check_pytest: 9.1.0 passes and is printed" 0 "-" "^pytest 9\.1\.0 \(pytest<9\.2\)$" \
+  "${pre}; PYTHONPATH='${vv}/fake9.1.0' gpu_tuned_check_pytest '${real_py}'"
+check "check_pytest: 9.2.0 is refused" 1 "has pytest 9\.2\.0, outside pytest<9\.2" "-" \
+  "${pre}; PYTHONPATH='${vv}/fake9.2.0' gpu_tuned_check_pytest '${real_py}'"
+check "check_pytest: no pytest is refused" 1 "has no pytest installed" "-" \
+  "${pre}; gpu_tuned_check_pytest '${real_py}'"
 rm -rf "${vv}"
 rm -rf "${nt}"
 check "publish_release: a bad wheel label is refused before gh is called" 1 "no local version label" "-" \

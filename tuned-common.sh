@@ -3054,6 +3054,12 @@ PY
 # Prints the version so the build log records it.
 GPU_TUNED_SETUPTOOLS_MIN="${GPU_TUNED_SETUPTOOLS_MIN:-84.2}"
 
+# GPU_TUNED_PYTEST_SPEC -- the one pytest limit for every tuned repo (user, 2026-11-08). pytest 9.2.0 (pytest-dev/pytest#14758)
+# breaks PyTorch's run_test.py collection, so whole test modules ran no tests and passed; the cap stays until
+# pytorch/pytorch#202406 is in our pytorch checkout. gpu_tuned_pip_install_requirements applies it as a constraint and
+# gpu_tuned_check_pytest verifies the installed pytest.
+GPU_TUNED_PYTEST_SPEC="${GPU_TUNED_PYTEST_SPEC:-pytest<9.2}"
+
 gpu_tuned_install_setuptools() {
     local have
     python3 -m pip install --quiet --disable-pip-version-check --upgrade "setuptools>=${GPU_TUNED_SETUPTOOLS_MIN}" \
@@ -3108,17 +3114,60 @@ gpu_tuned_freeze_requirements() {
 # gpu_tuned_pip_install_requirements <requirements-file> [pip-args...] -- `pip install -r` the file under its lock
 # (<file minus .txt>.lock, as a constraints file) when there is one, so the versions are the locked ones. No lock, or
 # GPU_TUNED_UNLOCKED=1 (to regenerate it), installs unconstrained and says so (H12).
+#
+# Either way it also passes GPU_TUNED_PYTEST_SPEC as a constraint: it caps pytest when the file asks for pytest and installs
+# nothing when it does not, so a requirements file may say a bare `pytest` and its lock records the version that resolved.
+# A lock whose pytest pin is outside the spec is refused before pip runs, with the way to regenerate it.
 gpu_tuned_pip_install_requirements() {
-    local req="${1:?usage: gpu_tuned_pip_install_requirements <requirements-file> [pip-args...]}" lock
+    local req="${1:?usage: gpu_tuned_pip_install_requirements <requirements-file> [pip-args...]}" lock pinned cons rc=0
     shift
     lock="${req%.txt}.lock"
+    cons="$(mktemp "${TMPDIR:-/tmp}/gpu-tuned-constraints.XXXXXX")" || return 1
+    printf '%s\n' "${GPU_TUNED_PYTEST_SPEC}" > "${cons}"
     if [[ -f "${lock}" && "${GPU_TUNED_UNLOCKED:-}" != "1" ]]; then
-        echo "installing ${req##*/} under ${lock##*/}"
-        python3 -m pip install -r "${req}" -c "${lock}" "$@"
+        pinned="$(sed -n 's/^[Pp]ytest==\([^[:space:]]*\).*/\1/p' "${lock}" | head -1)"
+        if [[ -n "${pinned}" ]] && ! gpu_tuned_spec_allows python3 "${GPU_TUNED_PYTEST_SPEC}" "${pinned}"; then
+            echo "ERROR: ${lock##*/} pins pytest==${pinned}, outside ${GPU_TUNED_PYTEST_SPEC} (GPU_TUNED_PYTEST_SPEC)." >&2
+            echo "  Regenerate the lock: build once with GPU_TUNED_UNLOCKED=1, run gpu_tuned_freeze_requirements, review the diff." >&2
+            rm -f "${cons}"
+            return 1
+        fi
+        echo "installing ${req##*/} under ${lock##*/} and ${GPU_TUNED_PYTEST_SPEC}"
+        python3 -m pip install -r "${req}" -c "${lock}" -c "${cons}" "$@" || rc=$?
     else
-        echo "installing ${req##*/} UNLOCKED (no ${lock##*/}, or GPU_TUNED_UNLOCKED=1)"
-        python3 -m pip install -r "${req}" "$@"
+        echo "installing ${req##*/} UNLOCKED (no ${lock##*/}, or GPU_TUNED_UNLOCKED=1), under ${GPU_TUNED_PYTEST_SPEC}"
+        python3 -m pip install -r "${req}" -c "${cons}" "$@" || rc=$?
     fi
+    rm -f "${cons}"
+    return "${rc}"
+}
+
+# gpu_tuned_spec_allows <python> <requirement-spec> <version> -- rc 0 when <version> satisfies <requirement-spec> (e.g.
+# "pytest<9.2" and 9.1.0), rc 1 when it does not, rc 2 when the spec cannot be read. Uses the packaging copy that pip
+# vendors, so it works in any venv that has pip and supports every specifier pip does; pre-releases count as versions.
+gpu_tuned_spec_allows() {
+    local py="${1:?usage: gpu_tuned_spec_allows <python> <requirement-spec> <version>}" spec="${2:?usage: gpu_tuned_spec_allows <python> <requirement-spec> <version>}" ver="${3:?usage: gpu_tuned_spec_allows <python> <requirement-spec> <version>}"
+    "${py}" -W ignore - "${spec}" "${ver}" <<'PY'
+import sys
+from pip._vendor.packaging.requirements import Requirement
+try:
+    req = Requirement(sys.argv[1])
+except Exception as exc:
+    print(f"ERROR: cannot read the requirement spec {sys.argv[1]!r}: {exc}", file=sys.stderr)
+    sys.exit(2)
+sys.exit(0 if req.specifier.contains(sys.argv[2], prereleases=True) else 1)
+PY
+}
+
+# gpu_tuned_check_pytest <python> -- the pytest that <python> imports satisfies GPU_TUNED_PYTEST_SPEC. Call it after the
+# test dependencies are installed and before any test runs; prints the version so the log records it. No pytest is an error.
+gpu_tuned_check_pytest() {
+    local py="${1:?usage: gpu_tuned_check_pytest <python>}" have
+    have="$("${py}" -c 'from importlib.metadata import version; print(version("pytest"))' 2>/dev/null)" \
+        || { echo "ERROR: ${py} has no pytest installed (wanted ${GPU_TUNED_PYTEST_SPEC})." >&2; return 1; }
+    gpu_tuned_spec_allows "${py}" "${GPU_TUNED_PYTEST_SPEC}" "${have}" \
+        || { echo "ERROR: ${py} has pytest ${have}, outside ${GPU_TUNED_PYTEST_SPEC} (GPU_TUNED_PYTEST_SPEC)." >&2; return 1; }
+    echo "pytest ${have} (${GPU_TUNED_PYTEST_SPEC})"
 }
 
 # gpu_tuned_setup_build_venv <venv-dir> <repo-root> -- the one way a build.sh gets its Python build venv (C9). It honours
