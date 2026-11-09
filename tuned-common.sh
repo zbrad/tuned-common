@@ -1508,6 +1508,79 @@ PY
     echo "OK: ${fn}: ${base} installs and loads cleanly (${imp} ${modver}${cap:+, device ${cap}, cuda ${cuda_ver}})"
 }
 
+# gpu_tuned_check_mapped_libs <python> <strict|allow-identical> <venv-only-prefixes> <setup-code>
+# -- prove that a process using the installed packages maps each shared library from one file, and the tuned ones
+# from the venv. In a fresh `<python> -I -W ignore` process, run from an empty directory with PYTHONPATH unset, it
+# runs <setup-code> (the caller's imports and a CUDA call, e.g. "import torch; torch.zeros(1, device=\"cuda\")"),
+# then reads the process's memory maps and refuses:
+#   1. a library name mapped from two different files. strict: any two files fail. allow-identical: byte-identical
+#      copies pass (the pip nvidia-cuda-runtime wheel and the toolkit can ship the same libcudart), and Python
+#      extension modules (names with ".cpython-") are not compared, since packages may share a file name. In both
+#      modes one WSL2 driver pair counts as one library: the /usr/lib/wsl/lib/ loader stub plus the
+#      /usr/lib/wsl/drivers/<inf dir>/ library it loads, with exactly one libdxcore mapped, from /usr/lib/wsl/lib/.
+#      (On WSL2, LD_DEBUG=files shows /usr/lib/wsl/lib/libcuda.so.1 loading libdxcore.so and then the driver-store
+#      libcuda.so.1.1 by full path.)
+#   2. a library whose name starts with one of <venv-only-prefixes> (comma-separated, e.g. "libtorch,libc10")
+#      mapped from outside the interpreter's sys.prefix.
+# Prints one verdict line, "clean", "clean (byte-identical copies of: a, b)" or the problems, and returns 0 only
+# for a clean verdict (2 for a usage error). If the probe itself fails, its last lines are printed instead.
+# GPU_TUNED_MAPS_FILE=<file> reads that file instead of the process's /proc/self/maps (for the tests).
+gpu_tuned_check_mapped_libs() {
+    local py="${1:-}" mode="${2:-}" prefixes="${3:-}" setup="${4:-}" fn="gpu_tuned_check_mapped_libs" work out verdict prc=0
+    if [[ -z "${py}" || -z "${setup}" ]]; then
+        echo "ERROR: ${fn}: usage: ${fn} <python> <strict|allow-identical> <venv-only-prefixes> <setup-code>" >&2
+        return 2
+    fi
+    case "${mode}" in
+        strict|allow-identical) ;;
+        *) echo "ERROR: ${fn}: the mode must be strict or allow-identical, not '${mode}'." >&2; return 2 ;;
+    esac
+    work="$(mktemp -d)"
+    out="$(cd "${work}" && env -u PYTHONPATH "${py}" -I -W ignore -c '
+import collections, hashlib, os, sys
+mode, setup = sys.argv[1], sys.argv[3]
+prefixes = tuple(p for p in sys.argv[2].split(",") if p)
+exec(setup, {})
+by = collections.defaultdict(set)
+for line in open(os.environ.get("GPU_TUNED_MAPS_FILE") or "/proc/self/maps"):
+    fields = line.split()
+    p = fields[-1] if fields else ""
+    if ".so" in p and p.startswith("/"):
+        by[os.path.basename(p).split(".so")[0]].add(os.path.realpath(p))
+def digest(path):
+    # An unreadable file cannot be shown identical to anything: its own path stands in, so it never matches.
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return "unreadable:" + path
+def wsl_pair(v):
+    dx = by.get("libdxcore", set())
+    return (len(v) == 2 and sum(x.startswith("/usr/lib/wsl/lib/") for x in v) == 1
+            and sum(x.startswith("/usr/lib/wsl/drivers/") for x in v) == 1
+            and len(dx) == 1 and next(iter(dx)).startswith("/usr/lib/wsl/lib/"))
+def tolerated(k, v):
+    if wsl_pair(v):
+        return True
+    return mode == "allow-identical" and (".cpython-" in k or len({digest(x) for x in v}) == 1)
+bad = [f"{k}: {sorted(v)}" for k, v in sorted(by.items()) if len(v) > 1 and not tolerated(k, v)]
+if prefixes:
+    bad += [f"{k} from {sorted(v)}" for k, v in sorted(by.items())
+            if k.startswith(prefixes) and not all(x.startswith(sys.prefix) for x in v)]
+same = sorted(k for k, v in by.items() if mode == "allow-identical" and len(v) > 1 and ".cpython-" not in k
+              and not wsl_pair(v) and len({digest(x) for x in v}) == 1)
+print("; ".join(bad) if bad else "clean" + (" (byte-identical copies of: " + ", ".join(same) + ")" if same else ""))
+' "${mode}" "${prefixes}" "${setup}" 2>&1)" || prc=$?
+    rmdir "${work}" 2>/dev/null || true
+    verdict="$(printf '%s\n' "${out}" | tail -1)"
+    if [[ "${prc}" -eq 0 && "${verdict}" == clean* ]]; then
+        echo "${verdict}"
+        return 0
+    fi
+    printf '%s\n' "${out}" | tail -5
+    return 1
+}
+
 # gpu_tuned_require_pushed [repo-dir] -- fail unless HEAD is contained in a branch on origin (fetched first). A GitHub
 # release tags a commit on the remote: with an unpushed HEAD, `gh release create --target <branch>` silently tags the
 # remote branch's OLD tip, so the tag and the uploaded artifact name different sources (found 2026-10-18: a cu133

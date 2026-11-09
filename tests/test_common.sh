@@ -1370,5 +1370,51 @@ else
     skip "assert_versioned_runpath" "no C compiler"
 fi
 
+# --- gpu_tuned_check_mapped_libs: synthetic /proc/self/maps files (no GPU) ---
+if command -v python3 >/dev/null 2>&1; then
+    ml="$(mktemp -d)"
+    printf 'one\n' > "${ml}/a1.so"; printf 'one\n' > "${ml}/a2.so"; printf 'two\n' > "${ml}/b.so"
+    mkdir -p "${ml}/x" "${ml}/y"
+    cp "${ml}/a1.so" "${ml}/x/libfoo.so.1"; cp "${ml}/a2.so" "${ml}/y/libfoo.so.1"; cp "${ml}/b.so" "${ml}/y/libbar.so.1"
+    cp "${ml}/a1.so" "${ml}/x/libbar.so.1"
+    cp "${ml}/a1.so" "${ml}/x/mod.cpython-314-x86_64-linux-gnu.so"; cp "${ml}/b.so" "${ml}/y/mod.cpython-314-x86_64-linux-gnu.so"
+    # mapsfile <name> <path>... -- one maps line per path
+    mapsfile() { local f="${ml}/$1.maps"; shift; : > "${f}"; for p in "$@"; do echo "7f00-7f01 r-xp 00000000 08:01 1 ${p}" >> "${f}"; done; echo "${f}"; }
+    WSL_STUB=/usr/lib/wsl/lib/libcuda.so.1; WSL_DRV=/usr/lib/wsl/drivers/nv_x/libcuda.so.1.1; WSL_DX=/usr/lib/wsl/lib/libdxcore.so
+    # Called inside `if`, as the smoke tests do, so a refusal is rc 1 without the ERR trap's message.
+    cml() { echo "${pre}; if GPU_TUNED_MAPS_FILE='$1' gpu_tuned_check_mapped_libs python3 $2 '$3' pass; then exit 0; else exit 1; fi"; }
+    check "check_mapped_libs: one file per name is clean" 0 "-" "^clean$" \
+      "$(cml "$(mapsfile one "${ml}/x/libfoo.so.1")" strict '')"
+    check "check_mapped_libs: strict refuses two byte-identical copies" 1 "-" "libfoo" \
+      "$(cml "$(mapsfile ident "${ml}/x/libfoo.so.1" "${ml}/y/libfoo.so.1")" strict '')"
+    check "check_mapped_libs: allow-identical passes and names byte-identical copies" 0 "-" "^clean \(byte-identical copies of: libfoo\)$" \
+      "$(cml "$(mapsfile ident2 "${ml}/x/libfoo.so.1" "${ml}/y/libfoo.so.1")" allow-identical '')"
+    check "check_mapped_libs: allow-identical refuses two different files" 1 "-" "libbar" \
+      "$(cml "$(mapsfile diff "${ml}/x/libbar.so.1" "${ml}/y/libbar.so.1")" allow-identical '')"
+    check "check_mapped_libs: allow-identical does not compare python extension modules" 0 "-" "^clean$" \
+      "$(cml "$(mapsfile cpy "${ml}/x/mod.cpython-314-x86_64-linux-gnu.so" "${ml}/y/mod.cpython-314-x86_64-linux-gnu.so")" allow-identical '')"
+    check "check_mapped_libs: strict compares python extension modules" 1 "-" "mod" \
+      "$(cml "$(mapsfile cpy2 "${ml}/x/mod.cpython-314-x86_64-linux-gnu.so" "${ml}/y/mod.cpython-314-x86_64-linux-gnu.so")" strict '')"
+    check "check_mapped_libs: the WSL2 libcuda stub + driver-store pair with libdxcore is one library (strict)" 0 "-" "^clean$" \
+      "$(cml "$(mapsfile wsl "${WSL_STUB}" "${WSL_DRV}" "${WSL_DX}")" strict '')"
+    check "check_mapped_libs: the WSL2 pair without libdxcore is refused" 1 "-" "libcuda" \
+      "$(cml "$(mapsfile wslnodx "${WSL_STUB}" "${WSL_DRV}")" strict '')"
+    check "check_mapped_libs: the WSL2 pair with libdxcore from elsewhere is refused" 1 "-" "libcuda" \
+      "$(cml "$(mapsfile wslbaddx "${WSL_STUB}" "${WSL_DRV}" /opt/x/libdxcore.so)" allow-identical '')"
+    check "check_mapped_libs: a WSL2 stub plus a non-WSL libcuda is refused" 1 "-" "libcuda" \
+      "$(cml "$(mapsfile wslmix "${WSL_STUB}" /usr/lib/x86_64-linux-gnu/libcuda.so.1 "${WSL_DX}")" strict '')"
+    check "check_mapped_libs: two driver-store libcuda directories are refused" 1 "-" "libcuda" \
+      "$(cml "$(mapsfile wsl2drv /usr/lib/wsl/drivers/a/libcuda.so.1.1 "${WSL_DRV}" "${WSL_DX}")" strict '')"
+    check "check_mapped_libs: a venv-only prefix mapped from outside sys.prefix is refused" 1 "-" "libtorch_cuda from" \
+      "$(cml "$(mapsfile prefix /opt/elsewhere/libtorch_cuda.so)" strict 'libtorch,libc10')"
+    check "check_mapped_libs: a bad mode is a usage error" 2 "must be strict or allow-identical" "-" \
+      "${pre}; gpu_tuned_check_mapped_libs python3 lenient '' pass"
+    check "check_mapped_libs: a failing probe prints its error, not a verdict" 1 "-" "ModuleNotFoundError" \
+      "${pre}; if gpu_tuned_check_mapped_libs python3 strict '' 'import no_such_module_here'; then exit 0; else exit 1; fi"
+    rm -rf "${ml}"
+else
+    skip "check_mapped_libs" "no python3"
+fi
+
 echo; echo "passed=${PASS} failed=${FAIL} skipped=${SKIPPED}"
 [[ "${FAIL}" -eq 0 ]]

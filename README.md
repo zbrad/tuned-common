@@ -82,6 +82,7 @@ before overwriting.
 - `gpu_tuned_load_toolkit <data-dir> <variant> <toolkit-id>` — select a CUDA toolkit from `toolkits/<id>.env` (+ optional `<variant>-<id>.env`); exports `CUDA_VER`/`CUDA_TAG`/`CUDA_HOME`/`GPU_TUNED_TOOLKIT_LIB_DIR`. With no id it uses the highest *defined* toolkit (by declared CUDA version) and prints the full list and why; it never consults `/usr/local/cuda` or what is installed
 - `gpu_tuned_verify_toolkit` — confirm the install matches its definition (nvcc release, libnccl2 package version)
 - `gpu_tuned_verify_toolkit_libs <elf>...` — confirm cudart/cublas/cublasLt resolve under `CUDA_HOME` when run with the toolkit's own lib dir on `LD_LIBRARY_PATH`
+- `gpu_tuned_check_mapped_libs <python> <strict|allow-identical> <venv-only-prefixes> <setup-code>` — after the caller's imports, every shared library is mapped from one file (WSL2's libcuda stub + driver-store pair counts as one) and the venv-only names from the venv
 
 - `gpu_tuned_load_repo_env <file>` — source a repo's `tuned/repo.env` (CMake flags, paths, extra packages) and fail loudly, listing every key, if it changes, sets or unsets anything the shared device/toolkit files decided
 
