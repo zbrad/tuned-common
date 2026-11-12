@@ -1,7 +1,8 @@
 #!/bin/bash
 # sync-common.sh — check or refresh a consumer repo's vendored copy of
 # zbrad/tuned-common's shared function library (tuned-common.sh) and, when the
-# consumer has opted in, its data files (devices/*.conf, toolkits/*.env).
+# consumer has opted in, its data files (devices/*.conf, toolkits/*.env,
+# constraints/*.txt).
 #
 # Vendored into every consumer alongside its copy of tuned-common.sh (as
 # tuned/sync-common.sh for repos with a tuned/ dir, or a repo-root
@@ -90,7 +91,7 @@ report() { REPORT+="$1"$'\n'; }
 # status <word> <path> [note] -- one report line, aligned.
 status() { report "$(printf '%-10s %s%s' "$1" "$2" "${3:+  -- $3}")"; }
 
-# Data files (devices/*.conf, toolkits/*.env) are vendored into
+# Data files (devices/*.conf, toolkits/*.env, constraints/*.txt) are vendored into
 # <this dir>/common-data/ only when that directory already exists, so a
 # consumer opts in with `mkdir tuned/common-data` and repos that keep their
 # own device files are untouched.
@@ -271,7 +272,7 @@ sync_data() {
     local new_sha="$1" base_sha="$2" paths path listed="" f rel
     paths="$(tree_json "${new_sha}" \
         | jq -r '.tree[] | select(.type == "blob") | .path' \
-        | grep -E '^(devices/[^/]+\.conf|toolkits/[^/]+\.env)$' || true)"
+        | grep -E '^(devices/[^/]+\.conf|toolkits/[^/]+\.env|constraints/[^/]+\.txt)$' || true)"
     [[ -n "${paths}" ]] || die "no device or toolkit files listed at ${new_sha} -- refusing to treat that as 'upstream dropped them all'"
     while IFS= read -r path; do
         [[ -n "${path}" ]] || continue

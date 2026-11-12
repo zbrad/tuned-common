@@ -88,7 +88,7 @@ before overwriting.
 
 See `tuned-common.sh` itself for full doc comments on each.
 
-## Devices and toolkits (shared data)
+## Devices, toolkits and constraints (shared data)
 
 - `devices/<variant>.conf` — hardware facts every consumer agrees on (`GPU_TUNED_VARIANT`,
   `GPU_TUNED_PLATFORM`, `GPU_TUNED_CUDA_ARCH`) and the canonical `GPU_TUNED_HW_LABEL` used in
@@ -105,6 +105,11 @@ See `tuned-common.sh` itself for full doc comments on each.
   (An earlier `toolkits/DEFAULT` file is gone; a leftover copy in a consumer is ignored.) `cu134` has no
   `TOOLKIT_NCCL_VERSION` (the installed libnccl2 is the 13.3 build), so do not bundle libnccl2
   from a `cu134` build.
+- `constraints/<variant>.txt` — Python package versions that every consumer of that variant
+  must agree on, as a pip/uv constraints file (`uv pip install -c`): exact `name==version` pins
+  only, each with its reason. A pin belongs here when one repo builds a binary against a package
+  and another installs that package at run time (rtx50-win: `apache-tvm-ffi`, which
+  flashinfer's precompiled modules link and vllm installs). Started 2026-11-12 with `rtx50-win`.
 
 Each repo adds its own settings in `tuned/repo.env`, loaded last by `gpu_tuned_load_repo_env`.
 It is tracked (a release must be reproducible) and may only add repo-specific keys: any attempt

@@ -30,19 +30,21 @@ BASE_SHA=1111111111111111111111111111111111111111
 NEW_SHA=2222222222222222222222222222222222222222
 
 # --- the fake upstream: the same repo at two commits ------------------------------
-mkdir -p "${ROOT}/raw/${BASE_SHA}/devices" "${ROOT}/raw/${NEW_SHA}/devices" "${ROOT}/raw/${NEW_SHA}/toolkits"
+mkdir -p "${ROOT}/raw/${BASE_SHA}/devices" "${ROOT}/raw/${NEW_SHA}/devices" "${ROOT}/raw/${NEW_SHA}/toolkits" "${ROOT}/raw/${NEW_SHA}/constraints"
 conf() { printf '# gb10 device\nA=%s\nB=2\nC=3\nD=4\nE=5\nF=6\nG=7\nH=8\nI=9\nJ=10\nZ=%s\n' "$1" "$2"; }
 conf 1 26   > "${ROOT}/raw/${BASE_SHA}/devices/gb10.conf"
 conf 11 26  > "${ROOT}/raw/${NEW_SHA}/devices/gb10.conf"
 # dropped at NEW_SHA: only the base has it
 conf 1 26   > "${ROOT}/raw/${BASE_SHA}/devices/old.conf"
 printf 'TOOLKIT_NCCL_VERSION=none\n' > "${ROOT}/raw/${NEW_SHA}/toolkits/cu134.env"
+printf 'pkg==1.0\n' > "${ROOT}/raw/${NEW_SHA}/constraints/rtx50-win.txt"
 printf '# lib v1\nf() { echo one; }\n' > "${ROOT}/raw/${BASE_SHA}/tuned-common.sh"
 printf '# lib v2\nf() { echo two; }\n' > "${ROOT}/raw/${NEW_SHA}/tuned-common.sh"
 cat > "${ROOT}/tree.json" <<'JSON'
 {"tree":[{"type":"blob","path":"tuned-common.sh"},
          {"type":"blob","path":"devices/gb10.conf"},
          {"type":"blob","path":"toolkits/cu134.env"},
+         {"type":"blob","path":"constraints/rtx50-win.txt"},
          {"type":"blob","path":"README.md"}]}
 JSON
 
@@ -73,6 +75,8 @@ has "fast-forward: the report records the library as updated" "${rep}" '^updated
 has "fast-forward: the report records the device file as updated" "${rep}" '^updated +devices/gb10\.conf$'
 has "fast-forward: a file only upstream has is added" "${rep}" '^added +toolkits/cu134\.env$'
 exists "fast-forward: the added file is on disk" "${c}/tuned/common-data/toolkits/cu134.env"
+has "fast-forward: a constraints file is vendored too" "${rep}" '^added +constraints/rtx50-win\.txt$'
+exists "fast-forward: the constraints file is on disk" "${c}/tuned/common-data/constraints/rtx50-win.txt"
 has "fast-forward: the sha is advanced" "${c}/tuned/common.sh.sha" "^${NEW_SHA}$"
 has "fast-forward: the report names both commits" "${rep}" "^base: +${BASE_SHA}$"
 has "fast-forward: README.md is not vendored" "${rep}" '.'

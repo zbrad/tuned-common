@@ -1167,6 +1167,9 @@ check "toolkit files: every toolkit defines TOOLKIT_NCCL_VERSION (a version, or 
 # every real device file must answer the host-OS question, so a new device cannot be added without deciding it
 check "device files: every device defines GPU_TUNED_HOST_OS (linux or windows)" 0 "-" "^ok$" \
   "D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; bad=0; for f in \"\$D\"/devices/*.conf; do grep -qE '^GPU_TUNED_HOST_OS=\"(linux|windows)\"' \$f || { echo \"missing or invalid in \$f\" >&2; bad=1; }; done; [ \$bad -eq 0 ] && echo ok"
+# a constraints file holds only exact pins: a range would let two consumers resolve different versions, which is what the file exists to stop
+check "constraints files: every line is a comment, blank, or an exact name==version pin" 0 "-" "^ok$" \
+  "D='${REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}'; bad=0; n=0; for f in \"\$D\"/constraints/*.txt; do n=\$((n+1)); if grep -vE '^(#.*|[[:space:]]*|[A-Za-z0-9._-]+==[A-Za-z0-9.+!_-]+)$' \$f >&2; then echo \"not an exact pin in \$f\" >&2; bad=1; fi; done; [ \$n -gt 0 ] && [ \$bad -eq 0 ] && echo ok"
 check "assert_host_os: the OS this host actually runs passes" 0 "-" "-" \
   "${pre}; gpu_tuned_assert_host_os linux rtx50"
 check "assert_host_os: a windows variant is refused by the bash scripts" 1 "this host is 'linux'" "-" \
