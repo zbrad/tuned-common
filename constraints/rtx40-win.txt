@@ -1,0 +1,11 @@
+# constraints/rtx40-win.txt -- Python package versions every rtx40-win consumer must build and run
+# with, as a pip/uv constraints file (`uv pip install -c <this file>`). Vendored like devices/ and
+# toolkits/ (tuned/common-data/constraints/). Only exact `name==version` pins, one reason each.
+#
+# Added 2026-11-13 with devices/rtx40-win.conf. Same pin as constraints/rtx50-win.txt, for the
+# same reason: the pin is about the Python packages, not the GPU.
+
+# apache-tvm-ffi: zbrad/flashinfer's precompiled modules link tvm_ffi.dll from the build venv,
+# and zbrad/vllm installs the runtime one, so the two must be the same version. See
+# constraints/rtx50-win.txt for why 0.1.16. Not yet checked on an rtx40-win install.
+apache-tvm-ffi==0.1.16
