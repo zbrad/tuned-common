@@ -596,6 +596,36 @@ check "newest_tag: -win picks its own newest and ignores the bare variant's newe
 check "allocation: a -win native tag is seen as taken for its date" 0 "-" "^1$" \
   "${pre}; printf 'v0.20261105.0-rtx50-win-cu134\n' | while read t; do gpu_tuned_date_label \"\$t\"; done | gpu_tuned_next_seq 20261105"
 
+# --- native tags that name the upstream version: v<ver>-<date>.<seq>-<variant>-cu<cuda> (2026-11-13) ---
+check "native_tag: an upstream version leads the tag" 0 "-" "^v1\.0\.0-20261114\.0-gb10-cu134$" "${pre}; gpu_tuned_native_tag gb10 cu134 20261114 1.0.0"
+check "native_tag: versioned, date.seq keeps the seq, hyphenated variant kept" 0 "-" "^v2\.32\.6-20261114\.3-rtx50-win-cu135$" "${pre}; gpu_tuned_native_tag rtx50-win cu135 20261114.3 2.32.6"
+check "native_tag: a non-numeric upstream version is refused" 1 "upstream version" "-" "${pre}; gpu_tuned_native_tag gb10 cu134 20261114 1.0.0-dev"
+check "native_tag: a leading-zero version component is refused" 1 "upstream version" "-" "${pre}; gpu_tuned_native_tag gb10 cu134 20261114 1.01.0"
+check "native_tag: version 0 alone is refused (that is the unversioned form)" 1 "upstream version" "-" "${pre}; gpu_tuned_native_tag gb10 cu134 20261114 0"
+check "native_tag: versioned tag round-trips through date_label" 0 "-" "^20261114\.2$" "${pre}; gpu_tuned_date_label \"\$(gpu_tuned_native_tag gb10 cu134 20261114.2 1.0.0)\""
+check "date_label: a versioned native tag with seq 0 reads as the bare date" 0 "-" "^20261114$" "${pre}; gpu_tuned_date_label 'v1.0.0-20261114.0-rtx40-cu134'"
+check "date_label: a versioned native tag with an impossible date is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label 'v1.0.0-20261131.0-gb10-cu134')\"; echo \"[\${X}]\""
+check "date_label: upstream's own v1.0.0-b12359-<sha> tag is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label 'v1.0.0-b12359-b1b770d')\"; echo \"[\${X}]\""
+check "date_label: an NCCL upstream tag v2.32.6-1 is not a label" 0 "-" "^\\[\\]$" \
+  "${pre}; X=\"\$(gpu_tuned_date_label 'v2.32.6-1')\"; echo \"[\${X}]\""
+check "native_tag_version: reads the version, 0 for the older form, nothing otherwise" 0 "-" "^1\.0\.0,0,$" \
+  "${pre}; echo \"\$(gpu_tuned_native_tag_version v1.0.0-20261114.0-gb10-cu134),\$(gpu_tuned_native_tag_version v0.20261113.1-gb10-cu135),\$(gpu_tuned_native_tag_version v10931-gb10-cu133)\""
+check "release_tag: a versioned native tag passes the gate" 0 "-" "-" "${pre}; gpu_tuned_check_release_tag v1.0.0-20261114.0-rtx40-cu134"
+check "allocation: both native forms on one date are taken" 0 "-" "^2$" \
+  "${pre}; printf 'v0.20261114.0-gb10-cu134\nv1.0.0-20261114.1-rtx40-cu134\n' | while read t; do gpu_tuned_date_label \"\$t\"; done | gpu_tuned_next_seq 20261114"
+check "newest_tag: a versioned tag outranks an older-form tag with a later date" 0 "-" "^v1\.0\.0-20261114\.0-gb10-cu134$" \
+  "${pre}; printf 'v0.20261120.0-gb10-cu134\nv1.0.0-20261114.0-gb10-cu134\n' | gpu_tuned_newest_release_tag gb10 cu134"
+check "newest_tag: versions compare as numbers (1.10.0 above 1.9.0)" 0 "-" "^v1\.10\.0-20261101\.0-gb10-cu134$" \
+  "${pre}; printf 'v1.9.0-20261201.0-gb10-cu134\nv1.10.0-20261101.0-gb10-cu134\n' | gpu_tuned_newest_release_tag gb10 cu134"
+check "newest_tag: same version ranks by date then sequence" 0 "-" "^v1\.0\.0-20261114\.10-gb10-cu134$" \
+  "${pre}; printf 'v1.0.0-20261114.2-gb10-cu134\nv1.0.0-20261114.10-gb10-cu134\nv1.0.0-20261113.5-gb10-cu134\n' | gpu_tuned_newest_release_tag gb10 cu134"
+check "newest_tag: a versioned -win tag is not picked up by the bare variant" 1 "." "-" \
+  "${pre}; printf 'v1.0.0-20261114.0-rtx50-win-cu134\n' | gpu_tuned_newest_release_tag rtx50 cu134"
+check "newest_tag: the older form alone still resolves" 0 "-" "^v0\.20261113\.1-gb10-cu135$" \
+  "${pre}; printf 'v0.20261113.1-gb10-cu135\nv0.20261113.0-gb10-cu134\n' | gpu_tuned_newest_release_tag gb10 cu135"
+
 # --- nvcc -> compact cuda tag ---
 nv="$(mktemp -d)"; mkdir -p "${nv}/cuda-13.4/bin" "${nv}/cuda-12.10/bin" "${nv}/broken/bin"
 mknvcc() { printf '#!/bin/sh\nprintf "nvcc: NVIDIA (R) Cuda compiler driver\\nCuda compilation tools, release %s, V%s.48\\n"\n' "$2" "$2" > "$1/bin/nvcc"; chmod +x "$1/bin/nvcc"; }

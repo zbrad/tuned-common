@@ -71,7 +71,10 @@ e.g.  2.15.0+gb10.cu134.20261010.0      first build of that day
 - **Sequence:** the **lowest unused** integer for that date, among the date labels on tags in
   `origin` (`git ls-remote --tags`, because a GitHub release is a git tag) and on local tags. It
   is per date across the repo: a second build that day gets `.1` even for a different CUDA tag.
-  Legacy counter tags, native `v0.<date>.<seq>-...` tags, plain versions and other dates are ignored.
+  Native tags in both forms (`v0.<date>.<seq>-...` and `v<ver>-<date>.<seq>-...`) count as taken;
+  legacy counter tags, plain versions and other dates are ignored. (Corrected 2026-11-13: this line
+  used to say native tags are ignored; the code and the test "sequence allocation sees native tags as
+  taken" have always counted them.)
 - **If `origin` cannot be read it fails loudly** and names `GPU_TUNED_LABEL_SEQ=<n>`, which
   chooses the sequence offline (a canonical integer; `0` is the bare date). A dev build that is
   never published sets `GPU_TUNED_LABEL_SEQ=0` and does no lookup.
@@ -176,6 +179,31 @@ PEP 440 itself ([spec](https://peps.python.org/pep-0440/); further reading:
   `v0.<YYYYMMDD>.<seq>-<variant>-cu<cuda>` (`gpu_tuned_native_tag`, `ARCHITECTURE.md` E2). The `-` and `_` rule above is
   about wheel versions, where PEP 440 rewrites them to `.`; a native tag is not normalised, but `-` already separates its
   version, variant and toolkit fields, so the sequence stays dot-separated.
+
+### Native tags name the upstream version (user decision 2026-11-13)
+
+Once an upstream makes real releases, the `0` in `v0.<date>.<seq>` misleads (llama.cpp tagged `v1.0.0`
+on 2026-11-13; our build of it already reported `1.0.0-dev`). A native tag may now lead with the upstream
+release the source is based on, in the same position a wheel's public version has:
+
+```
+v<upstream-version>-<YYYYMMDD>.<seq>-<variant>-cu<cuda>     e.g. v1.0.0-20261114.0-rtx40-cu134
+<name>-<upstream-version>-<YYYYMMDD>.<seq>-<variant>-cu<cuda>.tar.gz
+```
+
+- `gpu_tuned_native_tag <variant> <cuda-tag> <label> <upstream-version>`; with no fourth argument it still
+  writes the older `v0.` form, so a repo migrates when its scripts pass the version. The version is
+  1-4 dot-separated canonical integers (no `-dev`, no `rc`), taken from upstream's own source by the
+  repo's build script, never typed by hand. `0` alone is refused: that is the unversioned form.
+- Date and sequence are unchanged: one sequence per date across the repo, shared by both forms.
+- Newest: ranked by upstream version (numeric per component), then date, then sequence
+  (`gpu_tuned_newest_release_tag`); an older-form tag counts as version 0, so every versioned
+  release ranks above it. Consumers that pick a newest release by hand (llama.cpp `install.sh`,
+  zbrad/ollama's scripts) must use the same rule.
+- Published `v0.` releases keep their names; nothing is re-tagged.
+- Migrated: llama.cpp (2026-11-13). Not yet: nccl, faiss, ollama. nccl's `tuned/env.sh` finds its
+  upstream version with `git describe --match 'v[0-9]*.[0-9]*.[0-9]*-[0-9]*' --exclude 'v0.*'`, which
+  would match our own `v2.32.6-<date>...` tags; change that exclude before nccl migrates.
 
 ## Enforcement
 
