@@ -118,6 +118,14 @@ run 'J5 fork with CLAUDE.md fails'          J5 FAIL 'git remote add upstream htt
 run 'J5 fork with nested .claude fails'     J5 FAIL 'git remote add upstream https://github.com/u/r.git; mkdir -p sub/.claude; echo x > sub/.claude/settings.json; git add -f sub/.claude/settings.json'
 run 'J5 fork with .agents fails'            J5 FAIL 'git remote add upstream https://github.com/u/r.git; mkdir -p .agents/skills/a; echo x > .agents/skills/a/SKILL.md'
 run 'J5 fork with files moved to rules_advisory passes' J5 PASS 'git remote add upstream https://github.com/u/r.git; mkdir -p rules_advisory rules_local/.claude; echo x > rules_advisory/CLAUDE.md; echo x > rules_local/.claude/a.json'
+run 'J6 passes'                           J6 PASS 'true'
+run 'J6 tracked file under a root ignore rule fails' J6 FAIL "echo '*.png' > .gitignore; echo x > a.png; git add -f a.png"
+run 'J6 tracked file under a directory rule fails'   J6 FAIL "echo 'build/' > .gitignore; mkdir -p s/build; echo x > s/build/f.txt; git add -f s/build/f.txt"
+run 'J6 tracked file under a nested .gitignore fails' J6 FAIL "mkdir -p n/xc; echo xc > n/.gitignore; echo x > n/xc/a.plist; git add -f n/xc/a.plist"
+run 'J6 nested negation un-ignores the file and passes' J6 PASS "echo '*_hip*' > .gitignore; mkdir -p k; echo x > k/r_hip.py; echo '!r_hip.py' > k/.gitignore; git add -f k/r_hip.py"
+run 'J6 file moved under ignored_tracked/ passes'    J6 PASS "printf '*.png\\nbuild/\\n' > .gitignore; mkdir -p ignored_tracked/s/build; echo x > ignored_tracked/a.png; echo x > ignored_tracked/s/build/f.txt; printf '!*\\n!*/\\n' > ignored_tracked/.gitignore; git add -f ignored_tracked"
+run 'J6 ignored_tracked/ without its .gitignore fails' J6 FAIL "echo '*.png' > .gitignore; mkdir -p ignored_tracked; echo x > ignored_tracked/a.png; git add -f ignored_tracked"
+run 'J6 a match only in .git/info/exclude passes'    J6 PASS "echo x > a.log; git add a.log; echo '*.log' >> .git/info/exclude"
 run 'kinds: wheel check N/A on native'    B2 N/A 'true'
 run 'kinds: wheel script makes B2 apply'  B2 PASS 'echo "# w" > tuned/wheel.sh'
 run 'H9 is N/A on a native-only repo'       H9 N/A 'true'

@@ -350,12 +350,19 @@ chk_J5() {
     [[ -z "${f}" ]] && pass "no agent rule file at a default-loaded path" || fail "$(echo "${f}" | wc -l) tracked at default paths: $(echo "${f}" | head -n 3 | tr '\n' ';' | sed 's/;$//')"
 }
 
+chk_J6() {
+    # repo .gitignore files only: the global ignore and .git/info/exclude are the user's, not the repo's rules
+    local f; f="$(git -C "${REPO}" ls-files -ci --exclude-per-directory=.gitignore)"
+    [[ -z "${f}" ]] && pass "no tracked file matches one of the repo's own .gitignore rules" \
+        || fail "$(echo "${f}" | wc -l) tracked file(s) match a repo .gitignore rule (move to ignored_tracked/, or un-ignore with a negation): $(echo "${f}" | head -n 3 | tr '\n' ';' | sed 's/;$//')"
+}
+
 # ---- the requirement register: ID | kinds it applies to (any, native, wheel) ---------------------
 REG="A1:any A2:any A3:any A4:any A5:any A6:any A7:any A8:any B1:native B2:wheel B3:native B4:any
 C1:any C2:native C3:native C4:native C5:any C6:native C7:native C8:any C9:any D1:native D2:native D3:native
 E1:wheel E2:native E3:any E4:any E5:any E6:any E7:any E8:any F1:native F2:native F3:native F4:wheel
 G1:any G2:any G3:any G4:any G5:native G6:native H1:native H2:native H3:native H4:any H5:native H6:native H7:any H8:native H9:wheel H10:wheel H11:any H12:any
-I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any J5:any"
+I1:native I2:native I3:native I4:native I5:native J1:any J2:any J3:any J4:any J5:any J6:any"
 
 applies() {  # applies <kind-needed>
     case "$1" in any) [[ -n "${KINDS}" ]] ;; *) has_kind "$1" ;; esac
