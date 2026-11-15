@@ -3103,12 +3103,25 @@ PY
             [[ -s "${work}/reqs.txt" ]] || { echo "ERROR: the wheel resolved to no dependencies; the audit has nothing to check." >&2; rc=1; }
         fi
         if [[ ${rc} -eq 0 && ! -e "${work}/report.json.nodeps" ]]; then
-            "${work}/venv/bin/pip-audit" --no-deps --disable-pip -r "${work}/reqs.txt" --format json \
-                > "${work}/audit.json" 2> "${work}/audit.err" || true
-            [[ -s "${work}/audit.json" ]] || { sed 's/^/  /' "${work}/audit.err" >&2; echo "ERROR: pip-audit produced no result." >&2; rc=1; }
+            _gpu_tuned_pip_audit_verdict "${work}" "${GPU_TUNED_AUDIT_ALLOW_FILE:-${here}/audit_allow.txt}" || rc=1
         fi
-        if [[ ${rc} -eq 0 && ! -e "${work}/report.json.nodeps" ]]; then
-            python3 -I - "${work}/audit.json" "${GPU_TUNED_AUDIT_ALLOW_FILE:-${here}/audit_allow.txt}" <<'PY' || rc=1
+    } 2>&1 | tee "${log}"
+    # The block above runs in the pipeline's subshell, so its rc is lost; the RESULT line is the verdict.
+    grep -q '^RESULT: no vulnerable package has a fix available$' "${log}" || rc=1
+    rm -rf "${work}"
+    return "${rc}"
+}
+
+# _gpu_tuned_pip_audit_verdict <work-dir> <allow-file> -- run pip-audit (from <work-dir>/venv) on <work-dir>/reqs.txt
+# (name==version lines) and print the H9 report: "not audited" lines, "audited N packages", one ACCEPTED/VIOLATION/WARNING
+# line per advisory, and the RESULT verdict line. rc 0 only on "RESULT: no vulnerable package has a fix available".
+# Shared by gpu_tuned_audit_deps (H9) and gpu_tuned_audit_venv (H14).
+_gpu_tuned_pip_audit_verdict() {
+    local work="${1:?}" allow="${2:?}"
+    "${work}/venv/bin/pip-audit" --no-deps --disable-pip -r "${work}/reqs.txt" --format json \
+        > "${work}/audit.json" 2> "${work}/audit.err" || true
+    [[ -s "${work}/audit.json" ]] || { sed 's/^/  /' "${work}/audit.err" >&2; echo "ERROR: pip-audit produced no result." >&2; return 1; }
+    python3 -I - "${work}/audit.json" "${allow}" <<'PY'
 import json, sys
 audit_path, allow_path = sys.argv[1], sys.argv[2]
 allowed = {}
@@ -3149,12 +3162,6 @@ for dep in deps:
 sys.stdout.write("RESULT: " + ("FAILED" if failed else "no vulnerable package has a fix available") + "\n")
 sys.exit(1 if failed else 0)
 PY
-        fi
-    } 2>&1 | tee "${log}"
-    # The block above runs in the pipeline's subshell, so its rc is lost; the RESULT line is the verdict.
-    grep -q '^RESULT: no vulnerable package has a fix available$' "${log}" || rc=1
-    rm -rf "${work}"
-    return "${rc}"
 }
 
 # gpu_tuned_install_setuptools -- put the current setuptools release in the active build venv, last (C8). setuptools is a
