@@ -941,6 +941,11 @@ check "rename_package by axes: renames, repoints a CMake file, passes both gates
   "rm -rf '${ax}/pk'; mkdir -p '${ax}/pk/lib/cmake'; cp '${ax}/s/libhost-cu133.so' '${ax}/pk/lib/libhost.so'; patchelf --set-soname libhost.so '${ax}/pk/lib/libhost.so'; printf 'set(L \"lib/libhost.so\")\n' > '${ax}/pk/lib/cmake/t.cmake'; ${pre}; printf 'libhost.so -cu133\n' > '${ax}/pk.manifest'; gpu_tuned_rename_package '${ax}/pk/lib' '${ax}/pk.manifest' - '' '^(libc\.so|libm\.so|libstdc\+\+|libgcc_s)' '${ax}/pk/lib/cmake' >/dev/null 2>&1; cat '${ax}/pk/lib/cmake/t.cmake'"
 rm -rf "${ax}"
 fi
+# A long cuobjdump listing must classify every time under pipefail (a printf | grep -q pipe took SIGPIPE, rc 141).
+fk="$(mktemp -d)"; mkdir -p "${fk}/bin"; : > "${fk}/lib.so"
+printf '#!/bin/bash\n[[ "$1" == --list-elf ]] || exit 0\nfor i in $(seq 1 400); do echo "ELF file    $i: lib.so.1.0.1.sm_121a.cubin"; done\n' > "${fk}/bin/cuobjdump"; chmod +x "${fk}/bin/cuobjdump"
+check "has_device_code: a 400-line listing is yes on every one of 200 runs (no SIGPIPE under pipefail)" 0 "-" "^200$" "${pre}; n=0; for i in \$(seq 1 200); do CUDA_HOME='${fk}' gpu_tuned_so_has_device_code '${fk}/lib.so' && n=\$((n+1)); done; echo \$n"
+rm -rf "${fk}"
 if ! command -v cmake >/dev/null 2>&1 || ! command -v gcc >/dev/null 2>&1; then
     skip "so_names_cmake: axis marks" "needs cmake and gcc; NOT verified on this machine"
 else
