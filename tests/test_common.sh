@@ -481,6 +481,10 @@ check "publish_release: the release targets the pushed HEAD commit, not a branch
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset >/dev/null; grep -q -- \"--target \$(git rev-parse HEAD)\" '${gate}/gh.log'"
 check "publish_release: GPU_TUNED_RELEASE_TARGET overrides the target" 0 "-" "-" \
   "${pre}; ${ingate}; GPU_TUNED_RELEASE_TARGET=somebranch gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset >/dev/null; grep -q -- '--target somebranch' '${gate}/gh.log'"
+check "publish_release: GPU_TUNED_PRERELEASE=1 adds --prerelease" 0 "-" "OK: published pre-release" \
+  "${pre}; ${ingate}; GPU_TUNED_PRERELEASE=1 gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset; grep -q -- '--prerelease' '${gate}/gh.log'"
+check "publish_release: without GPU_TUNED_PRERELEASE there is no --prerelease" 0 "-" "-" \
+  "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset >/dev/null; ! grep -q -- '--prerelease' '${gate}/gh.log'"
 check "publish_release: a clean tree reaches gh create" 0 "-" "OK: published o/r@v0.20261011.0-gb10-cu134" \
   "${pre}; ${ingate}; gpu_tuned_publish_release o/r v0.20261011.0-gb10-cu134 title notes asset; grep -q 'release create v0.20261011.0-gb10-cu134' '${gate}/gh.log'"
 rm -rf "${gate}"
@@ -1380,6 +1384,10 @@ check "publish_ready: no marker is refused before gh is called" 1 "no ready-mark
 check "publish_ready: a marker with its assets intact publishes and is spent" 0 "-" "OK: published" \
   "${pre}; ${inrp}; ${READY} >/dev/null; gpu_tuned_publish_ready ${RM}; grep -q 'release create v0.20261011.0-gb10-cu134' '${rp}/gh.log'; test -f ${RM}.published; test ! -f ${RM}"
 check "publish_ready: the same marker cannot publish twice" 1 "no ready-marker" "-" "${pre}; ${inrp}; gpu_tuned_publish_ready ${RM}"
+check "publish_ready: a marker without prerelease publishes a normal release, even with GPU_TUNED_PRERELEASE=1 at publish" 0 "-" "OK: published o/r@" \
+  "${pre}; ${inrp}; ${READY} >/dev/null; ! grep -q '^prerelease=' ${RM}; GPU_TUNED_PRERELEASE=1 gpu_tuned_publish_ready ${RM}; ! grep -q -- '--prerelease' '${rp}/gh.log'"
+check "publish_ready: GPU_TUNED_PRERELEASE=1 at release_ready publishes a pre-release, whatever publish's environment" 0 "-" "OK: published pre-release o/r@" \
+  "${pre}; ${inrp}; GPU_TUNED_PRERELEASE=1 ${READY} >/dev/null; grep -qx 'prerelease=1' ${RM}; GPU_TUNED_PRERELEASE= gpu_tuned_publish_ready ${RM}; grep -q -- '--prerelease' '${rp}/gh.log'"
 check "publish_ready: HEAD moved since the gates is refused" 1 "HEAD moved" "-" \
   "${pre}; ${inrp}; ${READY} >/dev/null; echo n >> src.c; git commit -qam moved; git push -q origin tuned-builds; rc=0; gpu_tuned_publish_ready ${RM} || rc=\$?; git reset -q --hard HEAD~1; git push -q -f origin tuned-builds; [ ! -s '${rp}/gh.log' ] && exit \$rc"
 check "publish_ready: a changed asset is refused" 1 "changed or vanished" "-" \

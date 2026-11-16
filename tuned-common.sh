@@ -1618,6 +1618,10 @@ gpu_tuned_require_pushed() {
 # nothing attached is always a caller mistake in this fleet (forgot to
 # build/package first), not a legitimate case.
 #
+# GPU_TUNED_PRERELEASE=1 publishes it as a GitHub pre-release (`--prerelease`),
+# which GitHub never marks Latest: the dev channel (a build of upstream's main,
+# not of an upstream release tag). Unset or anything else: a normal release.
+#
 # Refuses to publish from a dirty tree (gpu_tuned_require_clean_tree), run
 # against the current directory's checkout, before anything reaches `gh`.
 #
@@ -1645,15 +1649,21 @@ gpu_tuned_publish_release() {
     if [[ "${notes}" == @* ]]; then
         notes_args=(--notes-file "${notes#@}")
     fi
+    local pre_args=() kind="published"
+    if [[ "${GPU_TUNED_PRERELEASE:-}" == 1 ]]; then
+        pre_args=(--prerelease)
+        kind="published pre-release"
+    fi
     if ! gh release create "${tag}" \
         --repo "${repo}" \
         --title "${title}" \
         --target "${GPU_TUNED_RELEASE_TARGET:-$(git rev-parse HEAD)}" \
+        "${pre_args[@]}" \
         "${notes_args[@]}" \
         "$@"; then
         return 1
     fi
-    echo "OK: published ${repo}@${tag} -- https://github.com/${repo}/releases/tag/${tag}"
+    echo "OK: ${kind} ${repo}@${tag} -- https://github.com/${repo}/releases/tag/${tag}"
 }
 
 # --- release vs publish (docs/ARCHITECTURE.md B3, I3, I5) -------------------------------------------
@@ -1732,7 +1742,8 @@ gpu_tuned_release_marker_clear() {
 
 # gpu_tuned_release_ready <marker> <owner/repo> <tag> <title> <notes-file> <asset-spec ...> -- after every gate passed,
 # record what publish.sh may publish: the repo, tag, title, HEAD, the notes file and each asset (path#label) with the
-# sha256 of each. Does not publish. Asset paths and the notes file are stored absolute.
+# sha256 of each. Does not publish. Asset paths and the notes file are stored absolute. GPU_TUNED_PRERELEASE=1 records
+# prerelease=1, so publish.sh publishes a pre-release (gpu_tuned_publish_release) whatever its own environment says.
 gpu_tuned_release_ready() {
     local marker="${1:?marker}" repo="${2:?repo}" tag="${3:?tag}" title="${4:?title}" notes="${5:?notes}"
     shift 5
@@ -1747,6 +1758,7 @@ gpu_tuned_release_ready() {
         echo "head=$(git rev-parse HEAD)"
         echo "notes=$(realpath "${notes}")"
         echo "notes_sha256=$(sha256sum "${notes}" | awk '{print $1}')"
+        [[ "${GPU_TUNED_PRERELEASE:-}" == 1 ]] && echo "prerelease=1"
         for spec in "$@"; do
             path="${spec%%#*}"
             [[ -f "${path}" ]] || { echo "ERROR: gpu_tuned_release_ready: asset ${path} not found." >&2; rm -f -- "${tmp}"; return 1; }
@@ -1762,14 +1774,14 @@ gpu_tuned_release_ready() {
 # every asset are exactly what release.sh's gates saw; then gpu_tuned_publish_release (clean tree, pushed, tag shape);
 # then the marker is renamed <marker>.published so the same gates cannot publish twice. Run it from the repo root.
 gpu_tuned_publish_ready() {
-    local marker="${1:?marker}" line k v repo="" tag="" title="" head="" notes="" notes_sha=""
+    local marker="${1:?marker}" line k v repo="" tag="" title="" head="" notes="" notes_sha="" prerelease=""
     local -a assets=() shas=()
     [[ -f "${marker}" ]] || { echo "ERROR: no ready-marker at ${marker} -- run tuned/release.sh first; it must pass every gate." >&2; return 1; }
     while IFS= read -r line; do
         k="${line%%=*}"; v="${line#*=}"
         case "${k}" in
             repo) repo="${v}" ;; tag) tag="${v}" ;; title) title="${v}" ;; head) head="${v}" ;;
-            notes) notes="${v}" ;; notes_sha256) notes_sha="${v}" ;;
+            notes) notes="${v}" ;; notes_sha256) notes_sha="${v}" ;; prerelease) prerelease="${v}" ;;
             asset) assets+=("${v}") ;; asset_sha256) shas+=("${v}") ;;
         esac
     done < "${marker}"
@@ -1786,7 +1798,7 @@ gpu_tuned_publish_ready() {
             || { echo "ERROR: ${path} changed or vanished since release.sh passed; run tuned/release.sh again." >&2; return 1; }
     done
     echo "Publishing ${repo}@${tag} (${#assets[@]} assets, HEAD ${head:0:9})..."
-    gpu_tuned_publish_release "${repo}" "${tag}" "${title}" "@${notes}" "${assets[@]}" || return 1
+    GPU_TUNED_PRERELEASE="${prerelease}" gpu_tuned_publish_release "${repo}" "${tag}" "${title}" "@${notes}" "${assets[@]}" || return 1
     mv -f -- "${marker}" "${marker}.published"
 }
 
