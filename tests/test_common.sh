@@ -630,6 +630,55 @@ check "newest_tag: a versioned -win tag is not picked up by the bare variant" 1 
 check "newest_tag: the older form alone still resolves" 0 "-" "^v0\.20261113\.1-gb10-cu135$" \
   "${pre}; printf 'v0.20261113.1-gb10-cu135\nv0.20261113.0-gb10-cu134\n' | gpu_tuned_newest_release_tag gb10 cu135"
 
+# --- SemVer native tags and channels (design 2026-11-16) ---
+check "semver_tag: a release-channel tag" 0 "-" "^v1\.0\.0\+20261116\.0\.gb10\.cu134$" "${pre}; gpu_tuned_native_semver_tag gb10 cu134 20261116 1.0.0"
+check "semver_tag: a dev-channel tag, seq and hyphenated variant kept" 0 "-" "^v1\.0\.1-dev\.12431\+20261116\.2\.rtx50-win\.cu135$" \
+  "${pre}; gpu_tuned_native_semver_tag rtx50-win cu135 20261116.2 1.0.1 12431"
+check "semver_tag: a version that is not X.Y.Z is refused" 1 "gpu_tuned_native_semver_tag" "-" "${pre}; gpu_tuned_native_semver_tag gb10 cu134 20261116 1.0"
+check "semver_tag: a non-numeric dev build is refused" 1 "gpu_tuned_native_semver_tag" "-" "${pre}; gpu_tuned_native_semver_tag gb10 cu134 20261116 1.0.1 b12431"
+check "semver_tag: dev and release tags round-trip through date_label and the gate" 0 "-" "^20261116\.3,20261116$" \
+  "${pre}; a=\$(gpu_tuned_native_semver_tag gb10 cu134 20261116.3 1.0.1 12431); b=\$(gpu_tuned_native_semver_tag gb10 cu134 20261116 1.0.0); gpu_tuned_check_release_tag \$a; gpu_tuned_check_release_tag \$b; echo \"\$(gpu_tuned_date_label \$a),\$(gpu_tuned_date_label \$b)\""
+check "semver_tag: an impossible date or a leading zero is not a tag" 0 "-" "^\[\],\[\]$" \
+  "${pre}; echo \"[\$(gpu_tuned_date_label v1.0.0+20261131.0.gb10.cu134)],[\$(gpu_tuned_native_tag_fields v01.0.0+20261116.0.gb10.cu134)]\""
+check "native_tag_fields: all three dated forms" 0 "-" "^1\.0\.1 dev 12431 20261116 0 gb10 cu134;1\.0\.0 release - 20261115 1 gb10 cu134;0 release - 20261011 0 rtx50-win cu134$" \
+  "${pre}; echo \"\$(gpu_tuned_native_tag_fields v1.0.1-dev.12431+20261116.0.gb10.cu134);\$(gpu_tuned_native_tag_fields v1.0.0-20261115.1-gb10-cu134);\$(gpu_tuned_native_tag_fields v0.20261011.0-rtx50-win-cu134)\""
+check "native_tag_version: a dev tag names its version core" 0 "-" "^1\.0\.1$" "${pre}; gpu_tuned_native_tag_version v1.0.1-dev.12431+20261116.0.gb10.cu134"
+check "allocation: a SemVer tag on the date is taken" 0 "-" "^2$" \
+  "${pre}; printf 'v1.0.0+20261116.0.gb10.cu134\nv1.0.1-dev.12431+20261116.1.rtx40.cu134\n' | while read t; do gpu_tuned_date_label \"\$t\"; done | gpu_tuned_next_seq 20261116"
+sv='v1.0.0+20261116.0.gb10.cu134\nv1.0.1-dev.12500+20261116.0.gb10.cu134\nv1.0.1-dev.12431+20261117.0.gb10.cu134\nv1.0.0-20261115.1-gb10-cu134\nv1.0.1-dev.12600+20261116.0.rtx50-win.cu134'
+check "newest_tag: release (the default) skips dev tags" 0 "-" "^v1\.0\.0\+20261116\.0\.gb10\.cu134$" "${pre}; printf '${sv}\n' | gpu_tuned_newest_release_tag gb10 cu134"
+check "newest_tag: dev takes the highest build number, not the latest date" 0 "-" "^v1\.0\.1-dev\.12500\+20261116\.0\.gb10\.cu134$" "${pre}; printf '${sv}\n' | gpu_tuned_newest_release_tag gb10 cu134 dev"
+check "newest_tag: a release outranks the dev builds of its version" 0 "-" "^v1\.0\.1\+20261118\.0\.gb10\.cu134$" "${pre}; printf '${sv}\nv1.0.1+20261118.0.gb10.cu134\n' | gpu_tuned_newest_release_tag gb10 cu134 dev"
+check "newest_tag: a SemVer -win tag is not picked up by the bare variant" 1 "." "-" "${pre}; printf 'v1.0.1-dev.12600+20261116.0.rtx50-win.cu134\n' | gpu_tuned_newest_release_tag rtx50 cu134 dev"
+check "newest_tag: only dev builds exist, release channel finds none (no older-form fallback)" 1 "." "-" \
+  "${pre}; printf 'v1.0.1-dev.12431+20261116.0.gb10.cu134\nv26.12-gb10-cu134-g0fa8a51f\n' | gpu_tuned_newest_release_tag gb10 cu134"
+check "newest_tag: an unknown channel is refused" 1 "release\|dev" "-" "${pre}; printf 'x\n' | gpu_tuned_newest_release_tag gb10 cu134 nightly"
+ch="$(mktemp -d)"
+(
+    set -e; export GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+    git init -q -b master "${ch}/up"; cd "${ch}/up"
+    for n in 1 2 3; do echo "${n}" > f; git add f; git commit -qm "u${n}"; done
+    git tag v1.0.0; git tag v1.0.0-b3-abc; git tag b3
+    for n in 4 5; do echo "${n}" > f; git commit -qam "u${n}"; done
+    git clone -q "${ch}/up" "${ch}/fork"; cd "${ch}/fork"; git remote rename origin upstream
+    git checkout -q -b rel v1.0.0; echo ours > ours; git add ours; git commit -qm ours
+    git tag v1.0.0+20261116.0.gb10.cu134
+    git checkout -q -b dev upstream/master; echo ours > ours; git add ours; git commit -qm ours
+    git worktree add -q "${ch}/rel" rel
+    git clone -q --depth 1 "file://${ch}/up" "${ch}/shallow"
+    git init -q "${ch}/notags"; cd "${ch}/notags"; git remote add upstream "${ch}/up"; git fetch -q --no-tags upstream; git checkout -q -b w upstream/master
+) >/dev/null 2>&1
+check "upstream_channel: a fork on the release commit is the release channel" 0 "-" "^release 1\.0\.0 3 [0-9a-f]{40} v1\.0\.0$" \
+  "${pre}; gpu_tuned_upstream_channel '${ch}/rel' upstream/master"
+check "upstream_channel: past the release is dev, next patch, upstream's count (ours not counted)" 0 "-" "^dev 1\.0\.1 5 [0-9a-f]{40} v1\.0\.0$" \
+  "${pre}; gpu_tuned_upstream_channel '${ch}/fork' upstream/master"
+check "upstream_channel: a higher declared version wins, a lower one does not" 0 "-" "^1\.1\.0,1\.0\.1$" \
+  "${pre}; cd '${ch}/fork'; a=\$(gpu_tuned_upstream_channel . upstream/master 1.1.0); b=\$(gpu_tuned_upstream_channel . upstream/master 0.9.0); echo \"\$(cut -d' ' -f2 <<< \"\$a\"),\$(cut -d' ' -f2 <<< \"\$b\")\""
+check "upstream_channel: a shallow clone is refused" 1 "not a full git clone" "-" "${pre}; gpu_tuned_upstream_channel '${ch}/shallow' origin/master"
+check "upstream_channel: no release tag fetched is refused" 1 "no upstream release tag" "-" "${pre}; gpu_tuned_upstream_channel '${ch}/notags' upstream/master"
+check "upstream_channel: an unreadable upstream ref is refused" 1 "cannot read upstream ref" "-" "${pre}; gpu_tuned_upstream_channel '${ch}/fork' upstream/nope"
+rm -rf "${ch}"
+
 # --- nvcc -> compact cuda tag ---
 nv="$(mktemp -d)"; mkdir -p "${nv}/cuda-13.4/bin" "${nv}/cuda-12.10/bin" "${nv}/broken/bin"
 mknvcc() { printf '#!/bin/sh\nprintf "nvcc: NVIDIA (R) Cuda compiler driver\\nCuda compilation tools, release %s, V%s.48\\n"\n' "$2" "$2" > "$1/bin/nvcc"; chmod +x "$1/bin/nvcc"; }

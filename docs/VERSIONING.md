@@ -205,6 +205,40 @@ v<upstream-version>-<YYYYMMDD>.<seq>-<variant>-cu<cuda>     e.g. v1.0.0-20261114
   upstream version with `git describe --match 'v[0-9]*.[0-9]*.[0-9]*-[0-9]*' --exclude 'v0.*'`, which
   would match our own `v2.32.6-<date>...` tags; change that exclude before nccl migrates.
 
+### SemVer tags and release/dev channels (user decisions 2026-11-16)
+
+The 2026-11-13 form has two problems. A build of upstream's main 72 commits past v1.0.0 still reads
+`v1.0.0-<date>...`, as if it were v1.0.0. And under SemVer `v1.0.0-20261115.1` is a *pre-release of*
+1.0.0, so it sorts below v1.0.0. The SemVer form puts our identity in build metadata (after `+`, ignored
+for precedence) and marks builds between upstream releases as dev pre-releases:
+
+```
+release  v<X.Y.Z>+<YYYYMMDD>.<seq>.<variant>.cu<cuda>              v1.0.0+20261116.0.gb10.cu134
+dev      v<next>-dev.<build>+<YYYYMMDD>.<seq>.<variant>.cu<cuda>    v1.0.1-dev.12431+20261116.0.gb10.cu134
+```
+
+- **The channel follows from the source** (`gpu_tuned_upstream_channel <dir> <upstream-ref>
+  [<declared-version>]`): the upstream base is `git merge-base HEAD <upstream-ref>`; the build number is
+  `git rev-list --count <base>` (upstream's own `b<N>`; our commits are not counted); the last release is
+  the highest upstream tag that is exactly `v<X>.<Y>.<Z>` and an ancestor of the base. The base *is* that
+  release's commit: release channel. Anything after it: dev, with `<next>` = the release's patch plus one,
+  or the version upstream's source declares when that is higher. Fails closed on a shallow clone, an
+  unreadable ref or no release tag (fetch upstream's tags).
+- `gpu_tuned_native_semver_tag <variant> <cuda-tag> <label> <X.Y.Z> [<dev-build>]` writes it;
+  `gpu_tuned_native_tag_fields` reads all three dated forms (version, channel, build, date, seq,
+  variant, cuda). The two older forms predate channels and read as release.
+- Newest (`gpu_tuned_newest_release_tag <variant> <cuda> [release|dev]`, default `release`): SemVer
+  precedence (a release above the dev builds of its version; dev builds by build number), then date,
+  then sequence. `release` never returns a dev build, and does not fall back to a pre-date tag when dev
+  builds exist.
+- Dev builds are published as GitHub pre-releases (`GPU_TUNED_PRERELEASE=1` at `release.sh`, carried
+  in the ready-marker), so GitHub never marks them Latest.
+- Installers default to `release` and never switch to dev on their own (`--channel`, `--tag`, `--list`,
+  `--help`); a `+` in a download URL is written `%2B`, as the wheel repos already do.
+- `gpu_tuned_native_tag` is unchanged; a repo opts in by calling the SemVer writer. Not yet migrated:
+  llama.cpp, ollama (next). The PowerShell port (`windows/tuned-common.ps1`) does not read the
+  2026-11-13 form or this one yet.
+
 ## Enforcement
 
 - `gpu_tuned_local_version_dated <variant> <cuda> <YYYYMMDD> [<seq>]` builds the
